@@ -1,0 +1,10 @@
+{
+  "items": [
+    "Complete Blood Count", "Basic Metabolic Panel", "Comprehensive Metabolic Panel", 
+    "Lipid Panel", "Liver Function Tests", "Thyroid Function Tests", 
+    "Hemoglobin A1c", "Fasting Glucose", "Troponin I", "Brain Natriuretic Peptide", 
+    "C-Reactive Protein", "Erythrocyte Sedimentation Rate", "Urinalysis",
+    "Prothrombin Time", "Partial Thromboplastin Time", "D-Dimer", "Arterial Blood Gas",
+    "Lactic Acid", "Blood Culture", "Urine Culture", "COVID-19 PCR", "Influenza Panel"
+  ]
+}

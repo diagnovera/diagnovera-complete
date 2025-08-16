@@ -1,0 +1,9 @@
+{
+  "items": [
+    "Chest X-ray", "CT Head without contrast", "CT Head with contrast", "CT Chest with contrast",
+    "CT Abdomen/Pelvis", "CTA Chest", "MRI Brain", "MRI Spine", "Ultrasound Abdomen",
+    "Echocardiogram", "EKG", "Stress Test", "Coronary Angiography", "Mammography",
+    "Bone Density Scan", "PET Scan", "Nuclear Medicine Scan", "Ultrasound Doppler",
+    "X-ray Abdomen", "X-ray Extremity", "MRA Head", "MRCP"
+  ]
+}

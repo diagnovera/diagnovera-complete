@@ -1,0 +1,9 @@
+{
+  "items": [
+    "Benign", "Malignant", "Atypical cells", "Inflammatory changes", "Acute inflammation",
+    "Chronic inflammation", "Granulomatous inflammation", "Necrosis", "Fibrosis",
+    "Metaplasia", "Dysplasia", "Carcinoma in situ", "Adenocarcinoma", "Squamous cell carcinoma",
+    "Small cell carcinoma", "Lymphoma", "Leukemia", "No malignancy identified",
+    "Insufficient sample", "Reactive changes", "Infectious process", "Normal tissue"
+  ]
+}

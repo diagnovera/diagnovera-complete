@@ -1,0 +1,10 @@
+{
+  "items": [
+    "Tobacco use - current", "Tobacco use - former", "Alcohol use - social",
+    "Alcohol use - heavy", "Illicit drug use", "Marijuana use", "Exercise - regular",
+    "Exercise - sedentary", "Diet - regular", "Diet - vegetarian", "Diet - diabetic",
+    "Occupation - office work", "Occupation - manual labor", "Occupation - healthcare",
+    "Living situation - alone", "Living situation - with family", "Living situation - assisted",
+    "Sexual history - active", "Sexual history - inactive", "Travel history - recent"
+  ]
+}

@@ -1,0 +1,13 @@
+{
+  "items": [
+    "General: Well-appearing", "General: Ill-appearing", "General: In distress",
+    "HEENT: Normocephalic atraumatic", "HEENT: Pupils equal reactive", "HEENT: Pharynx clear",
+    "Neck: Supple", "Neck: No lymphadenopathy", "Neck: JVD present", "Neck: Carotid bruit",
+    "Cardiovascular: Regular rate and rhythm", "Cardiovascular: Murmur present", "Cardiovascular: S3 gallop",
+    "Pulmonary: Clear to auscultation", "Pulmonary: Crackles", "Pulmonary: Wheezing",
+    "Abdomen: Soft non-tender", "Abdomen: Distended", "Abdomen: Tender to palpation",
+    "Extremities: No edema", "Extremities: 2+ pitting edema", "Extremities: Cyanosis",
+    "Neurological: Alert and oriented x3", "Neurological: Cranial nerves intact", "Neurological: Normal strength",
+    "Skin: Warm and dry", "Skin: Rash present", "Skin: Jaundiced"
+  ]
+}

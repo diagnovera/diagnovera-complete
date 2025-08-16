@@ -1,0 +1,59 @@
+﻿# Dependencies
+node_modules/
+.next/
+dist/
+build/
+
+# Environment files
+.env
+.env.local
+.env.production
+.env.test
+*.env
+
+# Firebase
+.firebase/
+.firebaserc
+firebase-debug.log
+service-account-key.json
+diagnovera-sa-key.json
+terraform-sa.json
+
+# Python
+__pycache__/
+*.py[cod]
+*.class
+*.so
+.Python
+env/
+venv/
+ENV/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Terraform
+*.tfstate
+*.tfstate.*
+.terraform/
+.terraform.lock.hcl
+*.tfvars
+
+# Docker
+docker-compose.override.yml
+
+# Misc
+.vercel

@@ -1,0 +1,288 @@
+# app.yaml - Google App Engine configuration
+runtime: python39
+env: standard
+
+instance_class: F4
+automatic_scaling:
+  min_instances: 1
+  max_instances: 10
+  target_cpu_utilization: 0.7
+  target_throughput_utilization: 0.7
+
+env_variables:
+  GCP_PROJECT_ID: "your-project-id"
+  GCS_BUCKET_NAME: "medical-diagnostic-data"
+  ENVIRONMENT: "production"
+
+handlers:
+- url: /api/.*
+  script: auto
+  secure: always
+
+# VPC connector for private resources
+vpc_access_connector:
+  name: projects/your-project-id/locations/us-central1/connectors/diagnostic-connector
+
+---
+# requirements.txt
+Flask==2.3.2
+flask-cors==4.0.0
+google-cloud-firestore==2.11.1
+google-cloud-storage==2.10.0
+google-cloud-pubsub==2.18.0
+google-cloud-aiplatform==1.28.0
+numpy==1.24.3
+pandas==2.0.3
+gunicorn==20.1.0
+python-dotenv==1.0.0
+
+---
+# cloudbuild.yaml - CI/CD pipeline
+steps:
+  # Install dependencies
+  - name: 'python:3.9'
+    entrypoint: pip
+    args: ['install', '-r', 'requirements.txt', '-t', '.']
+
+  # Run tests
+  - name: 'python:3.9'
+    entrypoint: python
+    args: ['-m', 'pytest', 'tests/']
+
+  # Deploy to App Engine
+  - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
+    entrypoint: 'gcloud'
+    args: ['app', 'deploy', '--quiet']
+
+  # Deploy Cloud Functions
+  - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
+    entrypoint: 'gcloud'
+    args: 
+      - 'functions'
+      - 'deploy'
+      - 'process-patient-encounter'
+      - '--source=cloud_functions/patient_processor'
+      - '--entry-point=process_encounter'
+      - '--runtime=python39'
+      - '--trigger-topic=diagnostic-processing'
+      - '--memory=512MB'
+      - '--timeout=300s'
+
+  - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
+    entrypoint: 'gcloud'
+    args: 
+      - 'functions'
+      - 'deploy'
+      - 'build-reference-library'
+      - '--source=cloud_functions/library_builder'
+      - '--entry-point=build_library'
+      - '--runtime=python39'
+      - '--trigger-topic=library-building'
+      - '--memory=2GB'
+      - '--timeout=540s'
+
+timeout: '1200s'
+
+---
+# terraform/main.tf - Infrastructure as Code
+terraform {
+  required_providers {
+    google = {
+      source  = "hashicorp/google"
+      version = "~> 4.0"
+    }
+  }
+}
+
+provider "google" {
+  project = var.project_id
+  region  = var.region
+}
+
+variable "project_id" {
+  description = "GCP Project ID"
+  type        = string
+}
+
+variable "region" {
+  description = "GCP Region"
+  type        = string
+  default     = "us-central1"
+}
+
+# Firestore Database
+resource "google_firestore_database" "diagnostic_db" {
+  project     = var.project_id
+  name        = "(default)"
+  location_id = var.region
+  type        = "FIRESTORE_NATIVE"
+}
+
+# Cloud Storage Bucket
+resource "google_storage_bucket" "diagnostic_data" {
+  name          = "${var.project_id}-diagnostic-data"
+  location      = var.region
+  force_destroy = false
+
+  versioning {
+    enabled = true
+  }
+
+  lifecycle_rule {
+    condition {
+      age = 90
+    }
+    action {
+      type = "Delete"
+    }
+  }
+}
+
+# Pub/Sub Topics
+resource "google_pubsub_topic" "diagnostic_processing" {
+  name = "diagnostic-processing"
+}
+
+resource "google_pubsub_topic" "library_building" {
+  name = "library-building"
+}
+
+# VPC for App Engine
+resource "google_compute_network" "diagnostic_vpc" {
+  name                    = "diagnostic-vpc"
+  auto_create_subnetworks = false
+}
+
+resource "google_compute_subnetwork" "diagnostic_subnet" {
+  name          = "diagnostic-subnet"
+  ip_cidr_range = "10.0.0.0/24"
+  region        = var.region
+  network       = google_compute_network.diagnostic_vpc.id
+}
+
+# VPC Connector
+resource "google_vpc_access_connector" "diagnostic_connector" {
+  name          = "diagnostic-connector"
+  region        = var.region
+  ip_cidr_range = "10.1.0.0/28"
+  network       = google_compute_network.diagnostic_vpc.name
+}
+
+# IAM Roles
+resource "google_project_iam_member" "app_engine_firestore" {
+  project = var.project_id
+  role    = "roles/datastore.user"
+  member  = "serviceAccount:${var.project_id}@appspot.gserviceaccount.com"
+}
+
+resource "google_project_iam_member" "app_engine_storage" {
+  project = var.project_id
+  role    = "roles/storage.objectAdmin"
+  member  = "serviceAccount:${var.project_id}@appspot.gserviceaccount.com"
+}
+
+resource "google_project_iam_member" "app_engine_pubsub" {
+  project = var.project_id
+  role    = "roles/pubsub.publisher"
+  member  = "serviceAccount:${var.project_id}@appspot.gserviceaccount.com"
+}
+
+---
+# .gcloudignore
+.git
+.gitignore
+__pycache__/
+*.pyc
+.pytest_cache/
+.venv/
+env/
+venv/
+node_modules/
+*.log
+.DS_Store
+tests/
+docs/
+README.md
+terraform/
+.github/
+
+---
+# Makefile - Development commands
+.PHONY: setup deploy test clean
+
+PROJECT_ID := your-project-id
+REGION := us-central1
+
+setup:
+	@echo "Setting up GCP project..."
+	gcloud config set project $(PROJECT_ID)
+	gcloud services enable firestore.googleapis.com
+	gcloud services enable cloudfunctions.googleapis.com
+	gcloud services enable cloudbuild.googleapis.com
+	gcloud services enable pubsub.googleapis.com
+	gcloud services enable appengine.googleapis.com
+	gcloud services enable storage.googleapis.com
+	gcloud services enable vpcaccess.googleapis.com
+	@echo "Creating App Engine app..."
+	gcloud app create --region=$(REGION) || true
+	@echo "Creating Firestore database..."
+	gcloud firestore databases create --region=$(REGION) || true
+
+install:
+	pip install -r requirements.txt
+
+test:
+	python -m pytest tests/ -v
+
+run-local:
+	export GOOGLE_APPLICATION_CREDENTIALS="path/to/service-account-key.json"
+	python main.py
+
+deploy-app:
+	gcloud app deploy --quiet
+
+deploy-functions:
+	@echo "Deploying Cloud Functions..."
+	cd cloud_functions/patient_processor && \
+	gcloud functions deploy process-patient-encounter \
+		--entry-point=process_encounter \
+		--runtime=python39 \
+		--trigger-topic=diagnostic-processing \
+		--memory=512MB \
+		--timeout=300s
+	cd cloud_functions/library_builder && \
+	gcloud functions deploy build-reference-library \
+		--entry-point=build_library \
+		--runtime=python39 \
+		--trigger-topic=library-building \
+		--memory=2GB \
+		--timeout=540s
+
+deploy-all: deploy-app deploy-functions
+
+create-topics:
+	gcloud pubsub topics create diagnostic-processing || true
+	gcloud pubsub topics create library-building || true
+
+create-bucket:
+	gsutil mb -p $(PROJECT_ID) -c STANDARD -l $(REGION) gs://$(PROJECT_ID)-diagnostic-data || true
+
+init-terraform:
+	cd terraform && terraform init
+
+plan-terraform:
+	cd terraform && terraform plan -var="project_id=$(PROJECT_ID)"
+
+apply-terraform:
+	cd terraform && terraform apply -var="project_id=$(PROJECT_ID)" -auto-approve
+
+clean:
+	find . -type d -name "__pycache__" -exec rm -rf {} +
+	find . -type f -name "*.pyc" -delete
+
+stream-logs:
+	gcloud app logs tail -s default
+
+view-firestore:
+	@echo "Opening Firestore console..."
+	open https://console.cloud.google.com/firestore/data?project=$(PROJECT_ID)

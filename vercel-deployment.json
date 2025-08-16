@@ -1,0 +1,141 @@
+{
+  "package.json": {
+    "name": "medical-diagnostic-frontend",
+    "version": "1.0.0",
+    "private": true,
+    "scripts": {
+      "dev": "next dev",
+      "build": "next build",
+      "start": "next start",
+      "lint": "next lint",
+      "test": "jest",
+      "test:watch": "jest --watch"
+    },
+    "dependencies": {
+      "next": "13.4.19",
+      "react": "18.2.0",
+      "react-dom": "18.2.0",
+      "axios": "^1.4.0",
+      "socket.io-client": "^4.7.2",
+      "lucide-react": "^0.263.1",
+      "tailwindcss": "^3.3.3",
+      "autoprefixer": "^10.4.14",
+      "postcss": "^8.4.27",
+      "@tailwindcss/forms": "^0.5.4",
+      "recharts": "^2.7.2",
+      "react-hot-toast": "^2.4.1",
+      "zustand": "^4.4.1",
+      "react-query": "^3.39.3",
+      "date-fns": "^2.30.0"
+    },
+    "devDependencies": {
+      "@types/node": "20.4.5",
+      "@types/react": "18.2.17",
+      "@types/react-dom": "18.2.7",
+      "typescript": "5.1.6",
+      "eslint": "8.46.0",
+      "eslint-config-next": "13.4.19",
+      "jest": "^29.6.2",
+      "@testing-library/react": "^14.0.0",
+      "@testing-library/jest-dom": "^5.17.0"
+    }
+  },
+  
+  "vercel.json": {
+    "buildCommand": "npm run build",
+    "outputDirectory": ".next",
+    "devCommand": "npm run dev",
+    "installCommand": "npm install",
+    "framework": "nextjs",
+    "regions": ["iad1"],
+    "functions": {
+      "pages/api/*": {
+        "maxDuration": 30
+      }
+    },
+    "env": {
+      "NEXT_PUBLIC_API_URL": "@medical-api-url",
+      "NEXT_PUBLIC_SOCKET_URL": "@medical-socket-url",
+      "NEXT_PUBLIC_ENVIRONMENT": "production"
+    },
+    "build": {
+      "env": {
+        "NEXT_PUBLIC_API_URL": "@medical-api-url",
+        "NEXT_PUBLIC_SOCKET_URL": "@medical-socket-url"
+      }
+    },
+    "headers": [
+      {
+        "source": "/api/(.*)",
+        "headers": [
+          {
+            "key": "Access-Control-Allow-Origin",
+            "value": "*"
+          },
+          {
+            "key": "Access-Control-Allow-Methods",
+            "value": "GET,OPTIONS,PATCH,DELETE,POST,PUT"
+          },
+          {
+            "key": "Access-Control-Allow-Headers",
+            "value": "X-CSRF-Token, X-Requested-With, Accept, Accept-Version, Content-Length, Content-MD5, Content-Type, Date, X-Api-Version"
+          }
+        ]
+      }
+    ],
+    "rewrites": [
+      {
+        "source": "/api/:path*",
+        "destination": "https://diagnostic-engine-xyz.a.run.app/api/:path*"
+      }
+    ]
+  },
+  
+  "next.config.js": {
+    "content": "/** @type {import('next').NextConfig} */\nconst nextConfig = {\n  reactStrictMode: true,\n  swcMinify: true,\n  images: {\n    domains: ['storage.googleapis.com'],\n  },\n  env: {\n    NEXT_PUBLIC_API_URL: process.env.NEXT_PUBLIC_API_URL,\n    NEXT_PUBLIC_SOCKET_URL: process.env.NEXT_PUBLIC_SOCKET_URL,\n  },\n  async headers() {\n    return [\n      {\n        source: '/api/:path*',\n        headers: [\n          { key: 'Access-Control-Allow-Credentials', value: 'true' },\n          { key: 'Access-Control-Allow-Origin', value: '*' },\n          { key: 'Access-Control-Allow-Methods', value: 'GET,OPTIONS,PATCH,DELETE,POST,PUT' },\n          { key: 'Access-Control-Allow-Headers', value: 'X-CSRF-Token, X-Requested-With, Accept, Accept-Version, Content-Length, Content-MD5, Content-Type, Date, X-Api-Version' },\n        ],\n      },\n    ]\n  },\n}\n\nmodule.exports = nextConfig"
+  },
+  
+  "tailwind.config.js": {
+    "content": "/** @type {import('tailwindcss').Config} */\nmodule.exports = {\n  content: [\n    './pages/**/*.{js,ts,jsx,tsx,mdx}',\n    './components/**/*.{js,ts,jsx,tsx,mdx}',\n    './app/**/*.{js,ts,jsx,tsx,mdx}',\n  ],\n  theme: {\n    extend: {\n      colors: {\n        primary: {\n          50: '#eff6ff',\n          100: '#dbeafe',\n          200: '#bfdbfe',\n          300: '#93c5fd',\n          400: '#60a5fa',\n          500: '#3b82f6',\n          600: '#2563eb',\n          700: '#1d4ed8',\n          800: '#1e40af',\n          900: '#1e3a8a',\n        },\n        medical: {\n          blue: '#0066CC',\n          green: '#00A86B',\n          purple: '#6B46C1',\n          red: '#DC2626',\n        }\n      },\n      animation: {\n        'pulse-slow': 'pulse 3s cubic-bezier(0.4, 0, 0.6, 1) infinite',\n        'slide-up': 'slideUp 0.5s ease-out',\n      },\n      keyframes: {\n        slideUp: {\n          '0%': { transform: 'translateY(100px)', opacity: 0 },\n          '100%': { transform: 'translateY(0)', opacity: 1 },\n        }\n      }\n    },\n  },\n  plugins: [\n    require('@tailwindcss/forms'),\n  ],\n}"
+  },
+  
+  ".env.production": {
+    "content": "# Production environment variables\nNEXT_PUBLIC_API_URL=https://diagnostic-engine-xyz.a.run.app\nNEXT_PUBLIC_SOCKET_URL=wss://diagnostic-engine-xyz.a.run.app\nNEXT_PUBLIC_ENVIRONMENT=production\nNEXT_PUBLIC_GA_ID=G-XXXXXXXXXX"
+  },
+  
+  ".env.development": {
+    "content": "# Development environment variables\nNEXT_PUBLIC_API_URL=http://localhost:8080\nNEXT_PUBLIC_SOCKET_URL=ws://localhost:8080\nNEXT_PUBLIC_ENVIRONMENT=development"
+  },
+  
+  "tsconfig.json": {
+    "compilerOptions": {
+      "target": "es5",
+      "lib": ["dom", "dom.iterable", "esnext"],
+      "allowJs": true,
+      "skipLibCheck": true,
+      "strict": true,
+      "forceConsistentCasingInFileNames": true,
+      "noEmit": true,
+      "esModuleInterop": true,
+      "module": "esnext",
+      "moduleResolution": "bundler",
+      "resolveJsonModule": true,
+      "isolatedModules": true,
+      "jsx": "preserve",
+      "incremental": true,
+      "paths": {
+        "@/*": ["./*"]
+      }
+    },
+    "include": ["next-env.d.ts", "**/*.ts", "**/*.tsx"],
+    "exclude": ["node_modules"]
+  },
+  
+  ".gitignore": {
+    "content": "# dependencies\n/node_modules\n/.pnp\n.pnp.js\n\n# testing\n/coverage\n\n# next.js\n/.next/\n/out/\n\n# production\n/build\n\n# misc\n.DS_Store\n*.pem\n\n# debug\nnpm-debug.log*\nyarn-debug.log*\nyarn-error.log*\n\n# local env files\n.env*.local\n.env.development\n.env.production\n\n# vercel\n.vercel\n\n# typescript\n*.tsbuildinfo\nnext-env.d.ts"
+  },
+  
+  "README.md": {
+    "content": "# Medical Diagnostic System Frontend\n\n## Overview\nThis is the frontend application for the Medical Diagnostic System, built with Next.js and deployed on Vercel.\n\n## Features\n- Patient data entry across 6 domains\n- Real-time diagnosis processing\n- Complex visualization of results\n- WebSocket support for live updates\n- Responsive design for all devices\n\n## Deployment\n\n### Prerequisites\n- Node.js 16+\n- Vercel CLI: `npm i -g vercel`\n- Access to GCP backend services\n\n### Local Development\n```bash\nnpm install\nnpm run dev\n```\n\n### Deploy to Vercel\n```bash\n# Login to Vercel\nvercel login\n\n# Deploy to preview\nvercel\n\n# Deploy to production\nvercel --prod\n```\n\n### Environment Variables\nSet these in Vercel dashboard:\n- `NEXT_PUBLIC_API_URL`: Backend API URL\n- `NEXT_PUBLIC_SOCKET_URL`: WebSocket URL\n- `NEXT_PUBLIC_GA_ID`: Google Analytics ID (optional)\n\n## Architecture\n- **Framework**: Next.js 13 with App Router\n- **Styling**: Tailwind CSS\n- **State Management**: Zustand\n- **API Client**: Axios with React Query\n- **Real-time**: Socket.io Client\n- **Charts**: Recharts\n\n## API Integration\nThe frontend communicates with the Google Cloud backend through:\n1. REST API for diagnoses and data management\n2. WebSocket for real-time updates\n3. File uploads for batch processing\n\n## Security\n- All API calls use HTTPS\n- CORS configured for production domains\n- Environment variables for sensitive data\n- Input validation on all forms"
+  }
+}
