@@ -1,103 +1,199 @@
-from fastapi import FastAPI, BackgroundTasks, HTTPException
-from fastapi.middleware.cors import CORSMiddleware
-from pydantic import BaseModel
-from typing import Dict, List, Any, Optional
+# main.py - Fixed version
+
+from flask import Flask, jsonify, request
+from flask_cors import CORS
+from flask_socketio import SocketIO, emit
 import os
-import logging
+from datetime import datetime
 
-# Configure logging
-logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger(__name__)
+app = Flask(__name__)
 
-app = FastAPI(title="DIAGNOVERA Process A")
+# CORS configuration - FIXED: Added missing comma
+CORS(app, resources={
+    r"/*": {
+        "origins": [
+            "http://localhost:3000",
+            "http://localhost:3001",
+            "https://*.vercel.app",
+            "https://your-frontend-domain.com"
+        ],
+        "methods": ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+        "allow_headers": ["Content-Type", "Authorization"],
+        "supports_credentials": True
+    }
+})
 
-# Configure CORS
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],  # Configure this properly for production
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
+# Initialize SocketIO
+socketio = SocketIO(app, cors_allowed_origins="*", logger=True, engineio_logger=True)
 
-
-class PatientData(BaseModel):
-    patient_id: str
-    demographics: Dict[str, Any]
-    complex_plane_data: Dict[str, List[Dict[str, Any]]]
-    timestamp: str
-
-
-class AnalysisResponse(BaseModel):
-    encounter_id: str
-    patient_data: PatientData
-    diagnoses: List[Dict[str, Any]]
-    analysis_metadata: Dict[str, Any]
+# Store latest analysis - ONLY DECLARED ONCE
+latest_analysis = None
+connected_clients = 0
 
 
-@app.get("/")
-def root():
-    return {"status": "healthy", "service": "DIAGNOVERA Process A"}
+@app.route('/')
+def index():
+    """Root endpoint with API information"""
+    return jsonify({
+        'status': 'ok',
+        'message': 'DiagnoVera Backend API',
+        'version': '1.0.0',
+        'endpoints': {
+            'health': '/health',
+            'latest_analysis': '/api/nlp/latest',
+            'n8n_webhook': '/webhook/n8n-result',
+            'analyze': '/api/analyze'
+        },
+        'connected_clients': connected_clients
+    })
 
 
-@app.get("/health")
-def health_check():
-    return {"status": "healthy", "service": "process-a"}
+@app.route('/health')
+def health():
+    """Health check endpoint"""
+    return jsonify({
+        'status': 'healthy',
+        'timestamp': datetime.utcnow().isoformat(),
+        'connected_clients': connected_clients
+    })
 
 
-@app.post("/api/analyze", response_model=AnalysisResponse)
-async def analyze_patient_data(patient_data: PatientData):
-    """Analyze patient data against reference library"""
+@app.route('/api/nlp/latest')
+def get_latest_analysis():
+    """Get the latest analysis results"""
+    if latest_analysis:
+        return jsonify(latest_analysis)
+    else:
+        return jsonify({
+            'message': 'No analysis available yet',
+            'status': 'empty'
+        })
+
+
+@app.route('/webhook/n8n-result', methods=['POST'])
+def n8n_webhook():
+    """Receive results from n8n webhook"""
+    global latest_analysis
+
     try:
-        logger.info(f"Analyzing data for patient: {patient_data.patient_id}")
+        data = request.get_json()
+        print(f"Received n8n webhook: {data}")
 
-        # Mock analysis for now - replace with actual Process A logic
-        mock_response = {
-            "encounter_id": f"ENC-{patient_data.patient_id}-001",
-            "patient_data": patient_data.dict(),
-            "diagnoses": [
-                {
-                    "icd10_code": "I21.9",
-                    "description": "Acute myocardial infarction, unspecified",
-                    "probability": 0.85,
-                    "confidence_interval": [0.80, 0.90],
-                    "algorithms": {
-                        "bayesian": 0.83,
-                        "kuramoto": 0.86,
-                        "markov": 0.85
-                    }
-                }
-            ],
-            "analysis_metadata": {
-                "processing_time": 1.2,
-                "algorithms_used": ["bayesian", "kuramoto", "markov"],
-                "confidence_level": "high"
-            }
+        latest_analysis = {
+            **data,
+            'receivedAt': datetime.utcnow().isoformat()
         }
 
-        return AnalysisResponse(**mock_response)
+        # Emit to all connected WebSocket clients
+        socketio.emit('n8n_update', latest_analysis)
 
+        return jsonify({
+            'success': True,
+            'message': 'Analysis received and broadcasted',
+            'connected_clients': connected_clients
+        })
     except Exception as e:
-        logger.error(f"Error analyzing patient data: {str(e)}")
-        raise HTTPException(status_code=500, detail=str(e))
+        print(f"Error processing n8n webhook: {str(e)}")
+        return jsonify({
+            'success': False,
+            'error': str(e)
+        }), 500
 
 
-@app.post("/api/process-a/run")
-async def run_process_a(background_tasks: BackgroundTasks):
-    """Trigger Process A execution"""
-    logger.info("Process A execution triggered")
-    # Add background task here if needed
-    return {"status": "started", "message": "Process A initiated"}
+@app.route('/api/analyze', methods=['POST'])
+def analyze():
+    """Mock analysis endpoint for testing"""
+    try:
+        data = request.get_json()
+        print(f"Received analysis request: {data}")
+
+        # Mock analysis response
+        mock_analysis = {
+            'diagnoses': [
+                'Acute Myocardial Infarction',
+                'Unstable Angina',
+                'Heart Failure'
+            ],
+            'recommendations': [
+                'Order ECG stat',
+                'Serial troponin levels',
+                'Chest X-ray',
+                'Consider cardiology consultation'
+            ],
+            'labs_to_order': [
+                'Troponin I',
+                'BNP',
+                'Complete Blood Count',
+                'Basic Metabolic Panel',
+                'PT/INR'
+            ],
+            'confidence': 0.85,
+            'summary': 'Patient presents with symptoms consistent with acute coronary syndrome. High risk features present.',
+            'timestamp': datetime.utcnow().isoformat()
+        }
+
+        global latest_analysis
+        latest_analysis = mock_analysis
+
+        # Emit to WebSocket clients
+        socketio.emit('n8n_update', mock_analysis)
+
+        return jsonify({
+            'success': True,
+            'analysis': mock_analysis
+        })
+    except Exception as e:
+        print(f"Error in analysis: {str(e)}")
+        return jsonify({
+            'success': False,
+            'error': str(e)
+        }), 500
 
 
-@app.get("/api/process-a/status")
-def get_process_status():
-    """Get Process A status"""
-    return {"status": "running", "progress": 45.5}
+# WebSocket event handlers
+@socketio.on('connect')
+def handle_connect():
+    global connected_clients
+    connected_clients += 1
+    print(f'Client connected. Total clients: {connected_clients}')
+    emit('connected', {
+        'message': 'Connected to DiagnoVera backend',
+        'clientId': request.sid
+    })
 
 
-if __name__ == "__main__":
-    import uvicorn
+@socketio.on('disconnect')
+def handle_disconnect():
+    global connected_clients
+    connected_clients -= 1
+    print(f'Client disconnected. Total clients: {connected_clients}')
 
-    port = int(os.environ.get("PORT", 8080))
-    uvicorn.run(app, host="0.0.0.0", port=port)
+
+@socketio.on('request_analysis')
+def handle_request_analysis():
+    if latest_analysis:
+        emit('n8n_update', latest_analysis)
+
+
+# Error handlers
+@app.errorhandler(404)
+def not_found(error):
+    return jsonify({
+        'error': 'Endpoint not found',
+        'message': f'The endpoint {request.method} {request.url} does not exist',
+        'status': 'error'
+    }), 404
+
+
+@app.errorhandler(500)
+def internal_error(error):
+    return jsonify({
+        'error': 'Internal server error',
+        'message': str(error),
+        'status': 'error'
+    }), 500
+
+
+if __name__ == '__main__':
+    port = int(os.environ.get('PORT', 8080))
+    socketio.run(app, host='0.0.0.0', port=port, debug=False)

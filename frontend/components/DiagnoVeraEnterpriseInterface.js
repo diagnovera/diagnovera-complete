@@ -1,11 +1,271 @@
-import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
-import * as d3 from 'd3';
-import { ChevronDown, X, Loader2, Download, FileText } from 'lucide-react';
+'use client';
 
-// Data cache to prevent redundant fetches
+import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
+import { ChevronDown, X, Loader2, Download, RotateCcw, Brain, BarChart3, GitBranch, Type, Send, Wifi, WifiOff } from 'lucide-react';
+
+// Configuration
+const config = {
+  BACKEND_URL: process.env.NEXT_PUBLIC_BACKEND_URL || 'http://localhost:5000',
+  N8N_WEBHOOK_URL: process.env.NEXT_PUBLIC_N8N_WEBHOOK_URL || 'https://n8n.srv934967.hstgr.cloud/webhook/medical-diagnosis'
+};
+
+console.log('Backend URL:', config.BACKEND_URL);
+
+// Mock disease database
+const diseaseDatabase = {
+  'Myocardial Infarction': {
+    symptoms: ['chest pain', 'sweating', 'dyspnea', 'nausea', 'diaphoresis', 'radiating pain'],
+    labs: { 'Troponin': { min: 0.04, indicator: 'high' }, 'CK-MB': { min: 5, indicator: 'high' } },
+    vitals: { heartRate: { min: 100, max: 150 }, systolicBP: { min: 140 } },
+    prior: 0.05
+  },
+  'Pneumonia': {
+    symptoms: ['cough', 'fever', 'dyspnea', 'chills', 'fatigue', 'sputum'],
+    labs: { 'WBC': { min: 12, indicator: 'high' }, 'CRP': { min: 10, indicator: 'high' } },
+    vitals: { temperature: { min: 100.4 }, respiratoryRate: { min: 22 } },
+    prior: 0.10
+  },
+  'Heart Failure': {
+    symptoms: ['dyspnea', 'orthopnea', 'edema', 'fatigue', 'weakness', 'pnd'],
+    labs: { 'BNP': { min: 100, indicator: 'high' }, 'Troponin': { min: 0.02, indicator: 'high' } },
+    vitals: { o2Saturation: { max: 92 }, respiratoryRate: { min: 20 } },
+    prior: 0.08
+  }
+};
+
+const findSimilarDiseases = (symptomString) => {
+  return [];
+};
+
+// D3 Module Handler
+class D3Module {
+  static instance = null;
+  static loadPromise = null;
+
+  static async load() {
+    if (this.instance) return this.instance;
+    
+    if (!this.loadPromise) {
+      this.loadPromise = import('d3').then(module => {
+        this.instance = module;
+        return module;
+      });
+    }
+    
+    return this.loadPromise;
+  }
+}
+
+// WebSocket Service
+class WebSocketService {
+  constructor() {
+    this.socket = null;
+    this.callbacks = {};
+    this.connectionAttempts = 0;
+    this.maxAttempts = 3;
+    this.isConnecting = false;
+  }
+
+  async connect() {
+    if (this.isConnecting || (this.socket && this.socket.connected)) {
+      return;
+    }
+
+    this.isConnecting = true;
+
+    if (typeof window === 'undefined') {
+      console.warn('WebSocket can only be initialized in browser environment');
+      return;
+    }
+
+    try {
+      const io = await import('socket.io-client');
+      
+      console.log('Attempting to connect to WebSocket at:', config.BACKEND_URL);
+
+      this.socket = io.default(config.BACKEND_URL, {
+        transports: ['websocket', 'polling'],
+        reconnectionAttempts: 3,
+        reconnectionDelay: 1000,
+        timeout: 10000,
+        autoConnect: true
+      });
+
+      this.socket.on('connect', () => {
+        console.log('Connected to backend WebSocket');
+        this.connectionAttempts = 0;
+        this.isConnecting = false;
+      });
+
+      this.socket.on('connect_error', (error) => {
+        console.warn('WebSocket connection error:', error.message);
+        this.connectionAttempts++;
+        this.isConnecting = false;
+
+        if (this.connectionAttempts >= this.maxAttempts) {
+          console.error('Max connection attempts reached. Running in offline mode.');
+          if (this.callbacks.onConnectionError) {
+            this.callbacks.onConnectionError(error);
+          }
+        }
+      });
+
+      this.socket.on('n8n_update', (data) => {
+        if (this.callbacks.onN8nUpdate) {
+          this.callbacks.onN8nUpdate(data);
+        }
+      });
+
+      this.socket.on('disconnect', () => {
+        console.log('Disconnected from backend WebSocket');
+        this.isConnecting = false;
+      });
+    } catch (error) {
+      console.error('Failed to initialize WebSocket:', error);
+      this.isConnecting = false;
+      if (this.callbacks.onConnectionError) {
+        this.callbacks.onConnectionError(error);
+      }
+    }
+  }
+
+  disconnect() {
+    if (this.socket) {
+      this.socket.disconnect();
+      this.socket = null;
+    }
+    this.isConnecting = false;
+  }
+
+  onN8nUpdate(callback) {
+    this.callbacks.onN8nUpdate = callback;
+  }
+
+  onConnectionError(callback) {
+    this.callbacks.onConnectionError = callback;
+  }
+
+  isConnected() {
+    return this.socket && this.socket.connected;
+  }
+}
+
+const websocketService = new WebSocketService();
+
+// n8n Service
+const n8nService = {
+  async sendToN8n(patientData, processedData) {
+    try {
+      const payload = {
+        patient_id: patientData.demographics.mrn || 'unknown',
+        timestamp: new Date().toISOString(),
+        text: `${patientData.subjective.chiefComplaint}. Patient reports: ${patientData.subjective.symptoms.join(', ')}`,
+        demographics: {
+          age: patientData.demographics.age,
+          sex: patientData.demographics.sex
+        },
+        symptoms: patientData.subjective.symptoms,
+        chief_complaint: patientData.subjective.chiefComplaint,
+        vitals: patientData.objective.vitals,
+        laboratory: patientData.objective.laboratory,
+        imaging: patientData.objective.imaging,
+        medications: patientData.subjective.medications,
+        allergies: patientData.subjective.allergyHistory,
+        medical_history: patientData.subjective.pastMedicalHistory,
+        nlp_results: {
+          entities: [
+            ...patientData.subjective.symptoms.map(symptom => ({
+              type: 'symptom',
+              value: symptom,
+              confidence: 0.85
+            })),
+            ...patientData.subjective.medications.map(med => ({
+              type: 'medication',
+              value: med,
+              confidence: 0.90
+            }))
+          ],
+          confidence: {
+            overall: 0.82
+          }
+        },
+        complex_analysis: {
+          total_data_points: Object.values(processedData).flat().length,
+          domains: Object.keys(processedData),
+          complex_plane_data: processedData
+        }
+      };
+
+      console.log('Sending to n8n - Full payload:');
+      console.log(JSON.stringify(payload, null, 2));
+
+      const response = await fetch(config.N8N_WEBHOOK_URL, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(payload)
+      });
+
+      console.log('Response status:', response.status);
+      console.log('Response headers:', response.headers);
+
+      // Get response as text first to debug
+      const responseText = await response.text();
+      console.log('Response text:', responseText);
+
+      // Try to parse as JSON
+      let data;
+      try {
+        data = JSON.parse(responseText);
+      } catch (parseError) {
+        console.error('Failed to parse response as JSON:', parseError);
+        console.log('Raw response:', responseText);
+
+        // Check if it's the "Workflow was started" message
+        if (responseText.includes('Workflow was started')) {
+          throw new Error('n8n workflow is not configured to return results. Check webhook settings.');
+        }
+
+        // Return a default response if parsing fails
+        data = {
+          error: true,
+          message: 'Invalid response from n8n',
+          raw_response: responseText,
+          patient_id: payload.patient_id
+        };
+      }
+
+      console.log('n8n response - Parsed data:', data);
+      return data;
+
+    } catch (error) {
+      console.error('Error sending to n8n:', error);
+      throw error;
+    }
+  }
+};
+
+// Data cache
 const dataCache = new Map();
 
-// Production data loader hook with caching
+// Fallback data
+const getFallbackData = (dataFile) => {
+  const fallbacks = {
+    symptoms: ['Chest pain', 'Shortness of breath', 'Fever', 'Cough', 'Fatigue', 'Headache', 'Nausea', 'Dizziness'],
+    medications: ['Aspirin', 'Metoprolol', 'Lisinopril', 'Atorvastatin', 'Metformin', 'Levothyroxine'],
+    allergies: ['Penicillin', 'Sulfa drugs', 'Latex', 'Peanuts', 'Shellfish'],
+    past_medical_history: ['Hypertension', 'Diabetes Type 2', 'Hyperlipidemia', 'GERD', 'Asthma'],
+    past_surgical_history: ['Appendectomy', 'Cholecystectomy', 'Knee arthroscopy', 'Hernia repair'],
+    laboratory_tests: ['Complete Blood Count', 'Basic Metabolic Panel', 'Troponin', 'BNP', 'D-dimer', 'CRP'],
+    imaging_studies: ['Chest X-ray', 'CT Chest', 'Echocardiogram', 'EKG', 'MRI Brain'],
+    diagnoses: ['Acute MI', 'Pneumonia', 'Heart Failure', 'COPD Exacerbation', 'Pulmonary Embolism']
+  };
+
+  return fallbacks[dataFile] || [];
+};
+
+// Data loader hook
 const useDataLoader = (dataFile) => {
   const [data, setData] = useState([]);
   const [loading, setLoading] = useState(false);
@@ -14,7 +274,6 @@ const useDataLoader = (dataFile) => {
   useEffect(() => {
     if (!dataFile) return;
 
-    // Check cache first
     if (dataCache.has(dataFile)) {
       setData(dataCache.get(dataFile));
       return;
@@ -25,20 +284,32 @@ const useDataLoader = (dataFile) => {
       setError(null);
 
       try {
-        // Fetch from public/data directory
-        const response = await fetch(`/data/${dataFile}.json`);
-        if (!response.ok) throw new Error(`Failed to load ${dataFile}`);
+        let response = await fetch(`/data/${dataFile}.json`);
         
+        if (!response.ok) {
+          response = await fetch(`/data/${dataFile}`);
+        }
+        
+        if (!response.ok) {
+          response = await fetch(`${window.location.origin}/data/${dataFile}.json`);
+        }
+
+        if (!response.ok) {
+          throw new Error(`Failed to load ${dataFile}`);
+        }
+
         const result = await response.json();
-        const items = result.items || [];
-        
-        // Cache the result
+        const items = result.items || result || [];
+
         dataCache.set(dataFile, items);
         setData(items);
       } catch (err) {
         console.error(`Error loading ${dataFile}:`, err);
         setError(err.message);
-        setData([]);
+        
+        const fallbackData = getFallbackData(dataFile);
+        setData(fallbackData);
+        dataCache.set(dataFile, fallbackData);
       } finally {
         setLoading(false);
       }
@@ -50,73 +321,55 @@ const useDataLoader = (dataFile) => {
   return { data, loading, error };
 };
 
-// Preload critical data files
+// Preload data files
 export const preloadDataFiles = (files) => {
+  if (typeof window === 'undefined') return;
+  
   files.forEach(file => {
     if (!dataCache.has(file)) {
       fetch(`/data/${file}.json`)
         .then(res => res.json())
         .then(result => {
-          dataCache.set(file, result.items || []);
+          dataCache.set(file, result.items || result || []);
         })
-        .catch(err => console.error(`Failed to preload ${file}:`, err));
+        .catch(err => {
+          console.warn(`Using fallback data for ${file}`);
+          dataCache.set(file, getFallbackData(file));
+        });
     }
   });
 };
 
-// Epic-style Autocomplete with performance optimizations
-const EpicAutocompleteField = ({ 
-  label, 
+// EpicAutocompleteField component
+const EpicAutocompleteField = ({
+  label,
   dataFile,
-  value, 
-  onChange, 
-  placeholder, 
+  value,
+  onChange,
+  placeholder,
   multiple = false,
-  color = '#5B9BD5',
-  maxResults = 50,
-  debounceMs = 300
+  color = "#5B9BD5",
+  maxResults = 50
 }) => {
   const [isOpen, setIsOpen] = useState(false);
-  const [searchTerm, setSearchTerm] = useState('');
-  const [debouncedSearchTerm, setDebouncedSearchTerm] = useState('');
+  const [searchTerm, setSearchTerm] = useState("");
   const dropdownRef = useRef(null);
-  const searchTimeoutRef = useRef(null);
-  
+  const inputRef = useRef(null);
+
   const { data: options, loading, error } = useDataLoader(dataFile);
 
-  // Debounce search term
-  useEffect(() => {
-    if (searchTimeoutRef.current) {
-      clearTimeout(searchTimeoutRef.current);
-    }
-    
-    searchTimeoutRef.current = setTimeout(() => {
-      setDebouncedSearchTerm(searchTerm);
-    }, debounceMs);
-
-    return () => {
-      if (searchTimeoutRef.current) {
-        clearTimeout(searchTimeoutRef.current);
-      }
-    };
-  }, [searchTerm, debounceMs]);
-
-  // Virtualized filtering with memoization
   const filteredOptions = useMemo(() => {
-    if (!debouncedSearchTerm) return options.slice(0, maxResults);
-    
-    const lowerSearchTerm = debouncedSearchTerm.toLowerCase();
-    const filtered = [];
-    
-    // Efficient filtering for large datasets
-    for (let i = 0; i < options.length && filtered.length < maxResults; i++) {
-      if (options[i].toLowerCase().includes(lowerSearchTerm)) {
-        filtered.push(options[i]);
-      }
+    if (!searchTerm || searchTerm.length === 0) {
+      return options.slice(0, maxResults);
     }
-    
+
+    const lowerSearchTerm = searchTerm.toLowerCase();
+    const filtered = options
+      .filter(option => option.toLowerCase().includes(lowerSearchTerm))
+      .slice(0, maxResults);
+
     return filtered;
-  }, [debouncedSearchTerm, options, maxResults]);
+  }, [searchTerm, options, maxResults]);
 
   useEffect(() => {
     const handleClickOutside = (event) => {
@@ -124,22 +377,25 @@ const EpicAutocompleteField = ({
         setIsOpen(false);
       }
     };
-    document.addEventListener('mousedown', handleClickOutside);
-    return () => document.removeEventListener('mousedown', handleClickOutside);
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
   }, []);
 
   const handleSelect = useCallback((option) => {
     if (multiple) {
       const newValue = Array.isArray(value) ? value : [];
-      const updatedValue = newValue.includes(option) 
+      const updatedValue = newValue.includes(option)
         ? newValue.filter(v => v !== option)
         : [...newValue, option];
       onChange(updatedValue);
+      setSearchTerm("");
     } else {
       onChange(option);
       setIsOpen(false);
-      setSearchTerm('');
-      setDebouncedSearchTerm('');
+      setSearchTerm("");
+    }
+    if (inputRef.current) {
+      inputRef.current.value = "";
     }
   }, [multiple, value, onChange]);
 
@@ -151,21 +407,10 @@ const EpicAutocompleteField = ({
 
   const displayValue = Array.isArray(value) ? value : (value ? [value] : []);
 
-  if (error) {
-    return (
-      <div className="mb-3">
-        <label className="block text-xs font-semibold text-red-600 mb-1">
-          {label} - Error loading options
-        </label>
-        <div className="text-xs text-red-500">{error}</div>
-      </div>
-    );
-  }
-
   return (
     <div className="mb-3" ref={dropdownRef}>
       <div className="flex items-center mb-1">
-        <div 
+        <div
           className="w-2 h-2 rounded-full mr-2"
           style={{ backgroundColor: color }}
         />
@@ -176,19 +421,16 @@ const EpicAutocompleteField = ({
           <Loader2 className="ml-2 h-3 w-3 animate-spin text-gray-400" />
         )}
       </div>
-      
-      <div 
-        className="relative bg-white border-2 border-gray-200 hover:border-[#4a90e2] transition-all cursor-pointer"
-        onClick={() => {
-          setIsOpen(!isOpen);
-        }}
-        style={{ borderLeftColor: color, borderLeftWidth: '4px' }}
+
+      <div
+        className="relative bg-white border-2 border-gray-200 hover:border-[#4a90e2] transition-all"
+        style={{ borderLeftColor: color, borderLeftWidth: "4px" }}
       >
         <div className="flex items-center p-2 min-h-[36px]">
           {displayValue.length > 0 && (
             <div className="flex flex-wrap gap-1 mr-2">
               {displayValue.slice(0, 2).map((item, index) => (
-                <span 
+                <span
                   key={index}
                   className="inline-flex items-center px-2 py-0.5 text-xs font-medium bg-blue-50 text-blue-800 rounded"
                   style={{ backgroundColor: `${color}20`, color: color }}
@@ -209,21 +451,33 @@ const EpicAutocompleteField = ({
               )}
             </div>
           )}
-          
+
           <input
+            ref={inputRef}
             type="text"
             value={searchTerm}
-            onChange={(e) => setSearchTerm(e.target.value)}
-            placeholder={displayValue.length === 0 ? placeholder : ''}
-            className="flex-1 outline-none text-sm"
+            onChange={(e) => {
+              setSearchTerm(e.target.value);
+              setIsOpen(true);
+            }}
             onFocus={() => setIsOpen(true)}
+            onClick={() => setIsOpen(true)}
+            placeholder={displayValue.length === 0 ? placeholder : "Search..."}
+            className="flex-1 outline-none text-sm bg-transparent"
           />
-          
-          <ChevronDown className={`ml-2 h-3 w-3 text-gray-400 transition-transform ${isOpen ? 'rotate-180' : ''}`} />
+
+          <ChevronDown
+            onClick={(e) => {
+              e.stopPropagation();
+              setIsOpen(!isOpen);
+              inputRef.current?.focus();
+            }}
+            className={`ml-2 h-3 w-3 text-gray-400 transition-transform cursor-pointer ${isOpen ? "rotate-180" : ""}`}
+          />
         </div>
-        
+
         {isOpen && (
-          <div className="absolute z-50 w-full mt-1 bg-white border-2 border-[#4a90e2] shadow-lg max-h-48 overflow-auto">
+          <div className="absolute z-[100] w-full mt-1 bg-white border-2 border-[#4a90e2] shadow-lg max-h-64 overflow-auto">
             {loading ? (
               <div className="p-3 text-gray-500 text-center text-sm">
                 <Loader2 className="h-4 w-4 animate-spin mx-auto mb-1" />
@@ -231,13 +485,13 @@ const EpicAutocompleteField = ({
               </div>
             ) : filteredOptions.length === 0 ? (
               <div className="p-3 text-gray-500 text-center text-sm">
-                {searchTerm ? 'No matches found' : 'Start typing to search...'}
+                {searchTerm ? `No matches found for "${searchTerm}"` : "Start typing to search..."}
               </div>
             ) : (
               <>
-                {debouncedSearchTerm && (
-                  <div className="p-2 bg-gray-50 border-b text-xs text-gray-600">
-                    Showing {filteredOptions.length} of {options.length} options
+                {searchTerm && (
+                  <div className="p-2 bg-gray-50 border-b text-xs text-gray-600 sticky top-0">
+                    Showing {filteredOptions.length} results for "{searchTerm}"
                   </div>
                 )}
                 {filteredOptions.map((option, index) => (
@@ -248,7 +502,7 @@ const EpicAutocompleteField = ({
                       handleSelect(option);
                     }}
                     className={`px-3 py-2 text-sm hover:bg-blue-50 cursor-pointer ${
-                      displayValue.includes(option) ? 'bg-blue-100 font-medium' : ''
+                      displayValue.includes(option) ? "bg-blue-100 font-medium" : ""
                     }`}
                   >
                     {option}
@@ -263,13 +517,13 @@ const EpicAutocompleteField = ({
   );
 };
 
-// Imaging Field Component with findings
-const EpicImagingField = ({ 
-  label, 
-  dataFile, 
-  value, 
-  onChange, 
-  placeholder, 
+// Imaging Field Component
+const EpicImagingField = ({
+  label,
+  dataFile,
+  value,
+  onChange,
+  placeholder,
   color = '#FECA57',
   maxResults = 50,
   debounceMs = 300
@@ -279,15 +533,14 @@ const EpicImagingField = ({
   const [debouncedSearchTerm, setDebouncedSearchTerm] = useState('');
   const dropdownRef = useRef(null);
   const searchTimeoutRef = useRef(null);
-  
+
   const { data: options, loading } = useDataLoader(dataFile);
 
-  // Debounce search
   useEffect(() => {
     if (searchTimeoutRef.current) {
       clearTimeout(searchTimeoutRef.current);
     }
-    
+
     searchTimeoutRef.current = setTimeout(() => {
       setDebouncedSearchTerm(searchTerm);
     }, debounceMs);
@@ -301,16 +554,16 @@ const EpicImagingField = ({
 
   const filteredOptions = useMemo(() => {
     if (!debouncedSearchTerm) return options.slice(0, maxResults);
-    
+
     const lowerSearchTerm = debouncedSearchTerm.toLowerCase();
     const filtered = [];
-    
+
     for (let i = 0; i < options.length && filtered.length < maxResults; i++) {
       if (options[i].toLowerCase().includes(lowerSearchTerm)) {
         filtered.push(options[i]);
       }
     }
-    
+
     return filtered;
   }, [debouncedSearchTerm, options, maxResults]);
 
@@ -322,11 +575,15 @@ const EpicImagingField = ({
     setIsOpen(false);
     setSearchTerm('');
     setDebouncedSearchTerm('');
+    const input = dropdownRef.current?.querySelector('input[type="text"]');
+    if (input) {
+      input.value = '';
+    }
   }, [value, onChange]);
 
   const updateFindings = useCallback((study, findings) => {
     const currentImaging = Array.isArray(value) ? value : [];
-    onChange(currentImaging.map(img => 
+    onChange(currentImaging.map(img =>
       img.study === study ? { ...img, findings } : img
     ));
   }, [value, onChange]);
@@ -346,7 +603,7 @@ const EpicImagingField = ({
           <Loader2 className="ml-2 h-3 w-3 animate-spin text-gray-400" />
         )}
       </div>
-      
+
       {displayImaging.map((img, index) => (
         <div key={index} className="mb-2 p-2 bg-yellow-50 border border-yellow-200">
           <div className="flex items-start gap-2">
@@ -366,8 +623,8 @@ const EpicImagingField = ({
           </div>
         </div>
       ))}
-      
-      <div 
+
+      <div
         className="relative bg-white border-2 border-gray-200 hover:border-[#FECA57]"
         style={{ borderLeftColor: color, borderLeftWidth: '4px' }}
         onClick={() => setIsOpen(!isOpen)}
@@ -376,16 +633,19 @@ const EpicImagingField = ({
           <input
             type="text"
             value={searchTerm}
-            onChange={(e) => setSearchTerm(e.target.value)}
+            onChange={(e) => {
+              setSearchTerm(e.target.value);
+              if (!isOpen) setIsOpen(true);
+            }}
             placeholder={placeholder}
             className="flex-1 outline-none text-sm"
             onFocus={() => setIsOpen(true)}
           />
           <ChevronDown className="ml-2 h-3 w-3 text-gray-400" />
         </div>
-        
+
         {isOpen && (
-          <div className="absolute z-50 w-full mt-1 bg-white border-2 border-[#FECA57] shadow-lg max-h-48 overflow-auto">
+          <div className="absolute z-[100] w-full mt-1 bg-white border-2 border-[#FECA57] shadow-lg max-h-48 overflow-auto">
             {loading ? (
               <div className="p-3 text-gray-500 text-center text-sm">
                 <Loader2 className="h-4 w-4 animate-spin mx-auto mb-1" />
@@ -419,13 +679,13 @@ const EpicImagingField = ({
   );
 };
 
-// Lab Field Component with performance optimizations
-const EpicLabField = ({ 
-  label, 
-  dataFile, 
-  value, 
-  onChange, 
-  placeholder, 
+// Lab Field Component
+const EpicLabField = ({
+  label,
+  dataFile,
+  value,
+  onChange,
+  placeholder,
   color = '#70AD47',
   maxResults = 50,
   debounceMs = 300
@@ -435,15 +695,14 @@ const EpicLabField = ({
   const [debouncedSearchTerm, setDebouncedSearchTerm] = useState('');
   const dropdownRef = useRef(null);
   const searchTimeoutRef = useRef(null);
-  
+
   const { data: options, loading } = useDataLoader(dataFile);
 
-  // Debounce search
   useEffect(() => {
     if (searchTimeoutRef.current) {
       clearTimeout(searchTimeoutRef.current);
     }
-    
+
     searchTimeoutRef.current = setTimeout(() => {
       setDebouncedSearchTerm(searchTerm);
     }, debounceMs);
@@ -457,16 +716,16 @@ const EpicLabField = ({
 
   const filteredOptions = useMemo(() => {
     if (!debouncedSearchTerm) return options.slice(0, maxResults);
-    
+
     const lowerSearchTerm = debouncedSearchTerm.toLowerCase();
     const filtered = [];
-    
+
     for (let i = 0; i < options.length && filtered.length < maxResults; i++) {
       if (options[i].toLowerCase().includes(lowerSearchTerm)) {
         filtered.push(options[i]);
       }
     }
-    
+
     return filtered;
   }, [debouncedSearchTerm, options, maxResults]);
 
@@ -478,11 +737,15 @@ const EpicLabField = ({
     setIsOpen(false);
     setSearchTerm('');
     setDebouncedSearchTerm('');
+    const input = dropdownRef.current?.querySelector('input[type="text"]');
+    if (input) {
+      input.value = '';
+    }
   }, [value, onChange]);
 
   const updateLabValue = useCallback((labName, field, fieldValue) => {
     const currentLabs = Array.isArray(value) ? value : [];
-    onChange(currentLabs.map(lab => 
+    onChange(currentLabs.map(lab =>
       lab.name === labName ? { ...lab, [field]: fieldValue } : lab
     ));
   }, [value, onChange]);
@@ -502,7 +765,7 @@ const EpicLabField = ({
           <Loader2 className="ml-2 h-3 w-3 animate-spin text-gray-400" />
         )}
       </div>
-      
+
       {displayLabs.map((lab, index) => (
         <div key={index} className="flex items-center gap-2 mb-2 p-2 bg-green-50 border border-green-200">
           <span className="text-sm font-medium flex-1">{lab.name}</span>
@@ -525,8 +788,8 @@ const EpicLabField = ({
           </button>
         </div>
       ))}
-      
-      <div 
+
+      <div
         className="relative bg-white border-2 border-gray-200 hover:border-[#70AD47]"
         style={{ borderLeftColor: color, borderLeftWidth: '4px' }}
         onClick={() => setIsOpen(!isOpen)}
@@ -535,16 +798,19 @@ const EpicLabField = ({
           <input
             type="text"
             value={searchTerm}
-            onChange={(e) => setSearchTerm(e.target.value)}
+            onChange={(e) => {
+              setSearchTerm(e.target.value);
+              if (!isOpen) setIsOpen(true);
+            }}
             placeholder={placeholder}
             className="flex-1 outline-none text-sm"
             onFocus={() => setIsOpen(true)}
           />
           <ChevronDown className="ml-2 h-3 w-3 text-gray-400" />
         </div>
-        
+
         {isOpen && (
-          <div className="absolute z-50 w-full mt-1 bg-white border-2 border-[#70AD47] shadow-lg max-h-48 overflow-auto">
+          <div className="absolute z-[100] w-full mt-1 bg-white border-2 border-[#70AD47] shadow-lg max-h-48 overflow-auto">
             {loading ? (
               <div className="p-3 text-gray-500 text-center text-sm">
                 <Loader2 className="h-4 w-4 animate-spin mx-auto mb-1" />
@@ -581,11 +847,18 @@ const EpicLabField = ({
 // Complex Plane Visualization
 const ComplexPlaneChart = React.memo(({ data, showConnections, showLabels, selectedDomains }) => {
   const svgRef = useRef(null);
+  const [d3Module, setD3Module] = useState(null);
 
   useEffect(() => {
-    if (!svgRef.current || !data) return;
+    D3Module.load().then(d3 => {
+      setD3Module(d3);
+    });
+  }, []);
 
-    const svg = d3.select(svgRef.current);
+  useEffect(() => {
+    if (!svgRef.current || !data || !d3Module) return;
+
+    const svg = d3Module.select(svgRef.current);
     svg.selectAll("*").remove();
 
     const width = 500;
@@ -680,24 +953,34 @@ const ComplexPlaneChart = React.memo(({ data, showConnections, showLabels, selec
 
     if (allPoints.length === 0) return;
 
-    // Connection polygon
-    if (showConnections && allPoints.length > 2) {
-      const hull = d3.polygonHull(allPoints.map(p => {
-        const angle = p.angle * Math.PI / 180;
-        return [
-          radius * p.magnitude * Math.cos(angle),
-          radius * p.magnitude * Math.sin(angle)
-        ];
-      }));
+    // Convert points to coordinates
+    const coordinates = allPoints.map(p => {
+      const angle = p.angle * Math.PI / 180;
+      return {
+        x: radius * p.magnitude * Math.cos(angle),
+        y: radius * p.magnitude * Math.sin(angle),
+        data: p
+      };
+    });
 
-      if (hull) {
-        g.append("path")
-          .datum(hull)
-          .attr("d", d => "M" + d.join("L") + "Z")
-          .attr("fill", "rgba(74, 144, 226, 0.1)")
-          .attr("stroke", "#4a90e2")
-          .attr("stroke-width", 2);
-      }
+    // Sort points by angle for smooth curve
+    coordinates.sort((a, b) => a.data.angle - b.data.angle);
+
+    // Connection smooth curve using cardinal spline
+    if (showConnections && coordinates.length > 2) {
+      const closedCoordinates = [...coordinates, coordinates[0]];
+
+      const line = d3Module.line()
+        .x(d => d.x)
+        .y(d => d.y)
+        .curve(d3Module.curveCardinalClosed.tension(0.5));
+
+      g.append("path")
+        .datum(closedCoordinates)
+        .attr("d", line)
+        .attr("fill", "rgba(74, 144, 226, 0.1)")
+        .attr("stroke", "#4a90e2")
+        .attr("stroke-width", 2);
     }
 
     // Draw points
@@ -748,719 +1031,1603 @@ const ComplexPlaneChart = React.memo(({ data, showConnections, showLabels, selec
       .attr("r", 4)
       .attr("fill", "#333");
 
-  }, [data, showConnections, showLabels, selectedDomains]);
+  }, [data, showConnections, showLabels, selectedDomains, d3Module]);
+
+  if (!d3Module) {
+    return (
+      <div className="w-[500px] h-[500px] border border-gray-300 bg-white flex items-center justify-center">
+        <Loader2 className="h-8 w-8 animate-spin text-gray-400" />
+      </div>
+    );
+  }
 
   return (
     <svg ref={svgRef} width={500} height={500} className="border border-gray-300 bg-white" />
   );
 });
 
-// Main Component
-const DiagnoVeraEpicInterface = () => {
-  const [currentDomain, setCurrentDomain] = useState('subjective');
-  const [showConnectedLines, setShowConnectedLines] = useState(true);
-  const [showDataLabels, setShowDataLabels] = useState(true);
-  const [selectedGraphDomains, setSelectedGraphDomains] = useState('all');
+// Kuramoto Analysis
+const KuramotoAnalysis = ({ data }) => {
+  const svgRef = useRef(null);
+  const animationRef = useRef(null);
+  const [orderParameter, setOrderParameter] = useState(0);
+  const [coupling, setCoupling] = useState(0.8);
+  const [isRunning, setIsRunning] = useState(false);
+  const [oscillators, setOscillators] = useState([]);
+  const [d3Module, setD3Module] = useState(null);
 
+  useEffect(() => {
+    D3Module.load().then(d3 => {
+      setD3Module(d3);
+    });
+  }, []);
+
+  const hasData = data && Object.keys(data).length > 0 && Object.values(data).flat().length > 0;
+
+  useEffect(() => {
+    if (!hasData) return;
+
+    let newOscillators = [];
+    Object.entries(data).forEach(([domain, points]) => {
+      if (Array.isArray(points)) {
+        points.forEach(point => {
+          newOscillators.push({
+            ...point,
+            phase: (point.angle * Math.PI / 180),
+            naturalFreq: 0.1 + (point.magnitude * 0.9),
+            domain: domain
+          });
+        });
+      }
+    });
+    setOscillators(newOscillators);
+  }, [data, hasData]);
+
+  useEffect(() => {
+    if (!svgRef.current || oscillators.length === 0 || !d3Module) return;
+
+    const svg = d3Module.select(svgRef.current);
+    svg.selectAll("*").remove();
+
+    const width = 400;
+    const height = 400;
+    const radius = 150;
+    const centerX = width / 2;
+    const centerY = height / 2;
+
+    const g = svg.append("g")
+      .attr("transform", `translate(${centerX},${centerY})`);
+
+    // Background circle
+    g.append("circle")
+      .attr("r", radius)
+      .attr("fill", "none")
+      .attr("stroke", "#ddd")
+      .attr("stroke-width", 2);
+
+    // Kuramoto model simulation
+    const simulate = () => {
+      if (!isRunning) return;
+
+      const N = oscillators.length;
+      const newOscillators = oscillators.map((osc, i) => {
+        let sumSin = 0, sumCos = 0;
+
+        oscillators.forEach((other, j) => {
+          if (i !== j) {
+            sumSin += Math.sin(other.phase - osc.phase);
+            sumCos += Math.cos(other.phase - osc.phase);
+          }
+        });
+
+        const meanFieldPhase = Math.atan2(sumSin / N, sumCos / N);
+        const newPhase = osc.phase + 0.01 * (osc.naturalFreq + coupling * Math.sin(meanFieldPhase - osc.phase));
+
+        return {
+          ...osc,
+          phase: newPhase % (2 * Math.PI)
+        };
+      });
+
+      setOscillators(newOscillators);
+
+      // Calculate order parameter
+      let rSum = 0, iSum = 0;
+      newOscillators.forEach(osc => {
+        rSum += Math.cos(osc.phase);
+        iSum += Math.sin(osc.phase);
+      });
+      const r = Math.sqrt(rSum * rSum + iSum * iSum) / N;
+      setOrderParameter(r);
+
+      // Clear and redraw
+      g.selectAll(".oscillator").remove();
+      g.selectAll(".mean-field").remove();
+
+      // Draw mean field vector
+      if (r > 0.1) {
+        g.append("line")
+          .attr("class", "mean-field")
+          .attr("x1", 0)
+          .attr("y1", 0)
+          .attr("x2", radius * r * (rSum / N))
+          .attr("y2", radius * r * (iSum / N))
+          .attr("stroke", "#ff6b6b")
+          .attr("stroke-width", 3)
+          .attr("marker-end", "url(#arrowhead)");
+      }
+
+      // Draw oscillators
+      newOscillators.forEach(osc => {
+        const x = radius * Math.cos(osc.phase);
+        const y = radius * Math.sin(osc.phase);
+
+        g.append("circle")
+          .attr("class", "oscillator")
+          .attr("cx", x)
+          .attr("cy", y)
+          .attr("r", 6)
+          .attr("fill", osc.color || "#4a90e2")
+          .attr("stroke", "white")
+          .attr("stroke-width", 2)
+          .attr("opacity", 0.8);
+      });
+
+      // Draw domain labels
+      const domainAngles = {};
+      newOscillators.forEach(osc => {
+        if (!domainAngles[osc.domain]) {
+          domainAngles[osc.domain] = [];
+        }
+        domainAngles[osc.domain].push(osc.phase);
+      });
+
+      Object.entries(domainAngles).forEach(([domain, phases]) => {
+        const avgPhase = phases.reduce((a, b) => a + b, 0) / phases.length;
+        const labelRadius = radius + 20;
+        const x = labelRadius * Math.cos(avgPhase);
+        const y = labelRadius * Math.sin(avgPhase);
+
+        g.append("text")
+          .attr("x", x)
+          .attr("y", y)
+          .attr("text-anchor", "middle")
+          .attr("font-size", "10px")
+          .attr("fill", "#666")
+          .text(domain.substring(0, 8));
+      });
+
+      animationRef.current = requestAnimationFrame(simulate);
+    };
+
+    // Arrow marker
+    svg.append("defs").append("marker")
+      .attr("id", "arrowhead")
+      .attr("markerWidth", 10)
+      .attr("markerHeight", 7)
+      .attr("refX", 9)
+      .attr("refY", 3.5)
+      .attr("orient", "auto")
+      .append("polygon")
+      .attr("points", "0 0, 10 3.5, 0 7")
+      .attr("fill", "#ff6b6b");
+
+    if (isRunning) {
+      simulate();
+    } else {
+      // Draw static state
+      g.selectAll(".oscillator").remove();
+      oscillators.forEach(osc => {
+        const x = radius * Math.cos(osc.phase);
+        const y = radius * Math.sin(osc.phase);
+
+        g.append("circle")
+          .attr("class", "oscillator")
+          .attr("cx", x)
+          .attr("cy", y)
+          .attr("r", 6)
+          .attr("fill", osc.color || "#4a90e2")
+          .attr("stroke", "white")
+          .attr("stroke-width", 2);
+      });
+    }
+
+    return () => {
+      if (animationRef.current) {
+        cancelAnimationFrame(animationRef.current);
+      }
+    };
+  }, [oscillators, coupling, isRunning, d3Module]);
+
+  // Clinical interpretation
+  const getClinicalInterpretation = () => {
+    if (coupling < 0.3) {
+      return {
+        state: "Decoupled State",
+        color: "#e74c3c",
+        interpretation: "Low physiological integration. Body systems operating independently.",
+        clinicalSignificance: "May indicate: Shock states, multi-organ dysfunction, severe metabolic derangement, or medication effects disrupting normal feedback loops.",
+        actionableInsights: [
+          "• Evaluate for distributive shock or sepsis",
+          "• Check for metabolic acidosis/alkalosis",
+          "• Review medications affecting autonomic function",
+          "• Consider ICU-level monitoring"
+        ]
+      };
+    } else if (coupling < 0.7) {
+      return {
+        state: "Partial Synchronization",
+        color: "#f39c12",
+        interpretation: "Moderate physiological coupling. Some systems coordinating while others remain independent.",
+        clinicalSignificance: "Typical in: Compensated disease states, early decompensation, recovery phase, or therapeutic intervention effects.",
+        actionableInsights: [
+          "• Monitor trend - improving or worsening?",
+          "• Optimize current therapies",
+          "• Watch for decompensation signs",
+          "• Consider serial assessments"
+        ]
+      };
+    } else if (coupling < 1.2) {
+      return {
+        state: "Healthy Synchronization",
+        color: "#27ae60",
+        interpretation: "Optimal physiological integration. Body systems working in coordinated harmony.",
+        clinicalSignificance: "Indicates: Normal homeostasis, effective compensation mechanisms, good therapeutic response, or stable chronic disease.",
+        actionableInsights: [
+          "• Continue current management",
+          "• Focus on preventive measures",
+          "• Document baseline for future comparison",
+          "• Consider discharge planning if acute"
+        ]
+      };
+    } else {
+      return {
+        state: "Hyper-synchronization",
+        color: "#9b59b6",
+        interpretation: "Excessive coupling. Systems locked in rigid patterns with reduced adaptability.",
+        clinicalSignificance: "Concerning for: Autonomic dysfunction, panic/anxiety states, medication toxicity, or pre-seizure states.",
+        actionableInsights: [
+          "• Evaluate for anxiety/panic disorder",
+          "• Check for stimulant use/toxicity",
+          "• Consider autonomic testing",
+          "• Review for prodromal symptoms"
+        ]
+      };
+    }
+  };
+
+  const interpretation = getClinicalInterpretation();
+
+  if (!hasData || !d3Module) {
+    return (
+      <div className="bg-white border-2 border-gray-300 p-4">
+        <h3 className="text-sm font-bold mb-3">Kuramoto Synchronization Analysis</h3>
+        <div className="h-64 flex items-center justify-center text-gray-500 text-sm">
+          {!d3Module ? (
+            <Loader2 className="h-8 w-8 animate-spin text-gray-400" />
+          ) : (
+            "No patient data available. Enter clinical data to begin analysis."
+          )}
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="bg-white border-2 border-gray-300 p-4">
+      <h3 className="text-sm font-bold mb-3">Kuramoto Synchronization Analysis</h3>
+      <svg ref={svgRef} width={400} height={400} className="border border-gray-200" />
+      <div className="mt-3 space-y-2">
+        <div className="flex items-center justify-between">
+          <span className="text-xs font-medium">Order Parameter: {orderParameter.toFixed(3)}</span>
+          <span className="text-xs text-gray-500">(0 = chaos, 1 = sync)</span>
+        </div>
+        <div className="flex items-center justify-between">
+          <span className="text-xs font-medium">Total Oscillators: {oscillators.length}</span>
+          <span className="text-xs text-gray-500">From patient data</span>
+        </div>
+        <div className="flex items-center gap-2">
+          <label className="text-xs font-medium">Coupling Strength:</label>
+          <input
+            type="range"
+            min="0"
+            max="2"
+            step="0.1"
+            value={coupling}
+            onChange={(e) => setCoupling(parseFloat(e.target.value))}
+            className="flex-1"
+          />
+          <span className="text-xs w-8">{coupling.toFixed(1)}</span>
+        </div>
+        <button
+          onClick={() => setIsRunning(!isRunning)}
+          className={`w-full py-2 text-xs font-bold rounded ${
+            isRunning ? 'bg-red-500 text-white' : 'bg-green-500 text-white'
+          }`}
+        >
+          {isRunning ? 'Stop Simulation' : 'Start Simulation'}
+        </button>
+      </div>
+
+      {/* Clinical Interpretation Box */}
+      <div className={`mt-4 p-4 border-2 rounded-lg`} style={{ borderColor: interpretation.color, backgroundColor: `${interpretation.color}15` }}>
+        <div className="flex items-center justify-between mb-2">
+          <h4 className="text-sm font-bold flex items-center gap-2">
+            <div className="w-3 h-3 rounded-full" style={{ backgroundColor: interpretation.color }}></div>
+            {interpretation.state}
+          </h4>
+          <span className="text-xs text-gray-600">K = {coupling.toFixed(1)}</span>
+        </div>
+
+        <div className="space-y-2 text-xs">
+          <div>
+            <span className="font-semibold">Interpretation:</span>
+            <p className="text-gray-700 mt-1">{interpretation.interpretation}</p>
+          </div>
+
+          <div>
+            <span className="font-semibold">Clinical Significance:</span>
+            <p className="text-gray-700 mt-1">{interpretation.clinicalSignificance}</p>
+          </div>
+
+          <div>
+            <span className="font-semibold">Actionable Insights:</span>
+            <div className="mt-1 text-gray-700">
+              {interpretation.actionableInsights.map((insight, idx) => (
+                <div key={idx} className="ml-2">{insight}</div>
+              ))}
+            </div>
+          </div>
+        </div>
+
+        <div className="mt-3 p-2 bg-gray-100 rounded text-xs">
+          <span className="font-semibold">Clinical Note:</span> The coupling constant (K) represents the strength of interaction between physiological systems.
+          This analysis shows how synchronized the patient's various clinical parameters are, which can indicate overall system stability and coordination.
+        </div>
+      </div>
+    </div>
+  );
+};
+
+// Bayesian Analysis Component
+const BayesianAnalysis = ({ patientData, processedData, suspectedDiagnoses = [] }) => {
+  const [localDiseaseDatabase, setLocalDiseaseDatabase] = useState(diseaseDatabase);
+  const svgRef = useRef(null);
+  const [d3Module, setD3Module] = useState(null);
+
+  useEffect(() => {
+    D3Module.load().then(d3 => {
+      setD3Module(d3);
+    });
+  }, []);
+
+  const hasData = patientData && processedData && Object.values(processedData).flat().length > 0;
+
+  useEffect(() => {
+    if (!hasData) return;
+
+    const newDiseases = {};
+
+    suspectedDiagnoses.forEach(diagnosis => {
+      if (!localDiseaseDatabase[diagnosis]) {
+        newDiseases[diagnosis] = {
+          symptoms: patientData.subjective.symptoms.slice(0, 5),
+          labs: {},
+          vitals: {},
+          prior: 0.03,
+          isUserAdded: true
+        };
+
+        patientData.objective.laboratory.forEach(lab => {
+          if (lab.value) {
+            newDiseases[diagnosis].labs[lab.name] = {
+              value: parseFloat(lab.value),
+              indicator: 'check'
+            };
+          }
+        });
+      }
+    });
+
+    const symptomString = patientData.subjective.symptoms.join(' ');
+    const similarDiseases = findSimilarDiseases(symptomString);
+
+    if (Array.isArray(similarDiseases)) {
+      similarDiseases.slice(0, 3).forEach(({ disease, similarity }) => {
+        if (disease && !localDiseaseDatabase[disease] && similarity > 0.3) {
+          if (diseaseDatabase[disease]) {
+            newDiseases[disease] = {
+              ...diseaseDatabase[disease],
+              isSimilarityBased: true,
+              similarity: similarity
+            };
+          }
+        }
+      });
+    }
+
+    if (Object.keys(newDiseases).length > 0) {
+      setLocalDiseaseDatabase(prev => ({ ...prev, ...newDiseases }));
+    }
+  }, [suspectedDiagnoses, patientData, hasData]);
+
+  const calculateLikelihood = useCallback((disease, diseaseInfo, data) => {
+    let likelihood = 1.0;
+    let matchCount = 0;
+    let totalChecks = 0;
+
+    if (diseaseInfo.isUserAdded && suspectedDiagnoses.includes(disease)) {
+      likelihood *= 2.0;
+    }
+
+    if (data.subjective.chiefComplaint) {
+      const complaint = data.subjective.chiefComplaint.toLowerCase();
+      if (Array.isArray(diseaseInfo.symptoms)) {
+        diseaseInfo.symptoms.forEach(symptom => {
+          totalChecks++;
+          if (complaint.includes(symptom)) {
+            likelihood *= 2.5;
+            matchCount++;
+          }
+        });
+      }
+    }
+
+    const symptoms = data.subjective.symptoms || [];
+    if (Array.isArray(symptoms)) {
+      symptoms.forEach(patientSymptom => {
+        const symptomLower = patientSymptom.toLowerCase();
+        if (Array.isArray(diseaseInfo.symptoms)) {
+          diseaseInfo.symptoms.forEach(diseaseSymptom => {
+            totalChecks++;
+            if (symptomLower.includes(diseaseSymptom) || diseaseSymptom.includes(symptomLower)) {
+              likelihood *= 1.8;
+              matchCount++;
+            }
+          });
+        }
+      });
+    }
+
+    const vitals = data.objective.vitals || {};
+    Object.entries(diseaseInfo.vitals || {}).forEach(([vital, criteria]) => {
+      totalChecks++;
+      const value = parseFloat(vitals[vital]);
+      if (!isNaN(value)) {
+        let matches = false;
+        if (criteria.min && value >= criteria.min) matches = true;
+        if (criteria.max && value <= criteria.max) matches = true;
+        if (matches) {
+          likelihood *= 2.0;
+          matchCount++;
+        }
+      }
+    });
+
+    const labs = data.objective.laboratory || [];
+    labs.forEach(lab => {
+      if (lab.name && lab.value && diseaseInfo.labs && diseaseInfo.labs[lab.name]) {
+        totalChecks++;
+        const criteria = diseaseInfo.labs[lab.name];
+        const value = parseFloat(lab.value);
+        if (!isNaN(value)) {
+          let matches = false;
+          if (criteria.min && value >= criteria.min) matches = true;
+          if (criteria.max && value <= criteria.max) matches = true;
+          if (criteria.indicator === 'abnormal' && (value < criteria.min || value > criteria.max)) matches = true;
+          if (matches) {
+            likelihood *= 3.0;
+            matchCount++;
+          }
+        }
+      }
+    });
+
+    const matchRatio = totalChecks > 0 ? matchCount / totalChecks : 0;
+    likelihood *= (1 + matchRatio);
+
+    return Math.min(likelihood, 10);
+  }, [suspectedDiagnoses]);
+
+  const posteriorProbabilities = useMemo(() => {
+    if (!hasData) return [];
+
+    const likelihoods = {};
+    let totalEvidence = 0;
+
+    Object.entries(localDiseaseDatabase).forEach(([disease, diseaseInfo]) => {
+      const likelihood = calculateLikelihood(disease, diseaseInfo, patientData);
+      likelihoods[disease] = likelihood;
+      totalEvidence += diseaseInfo.prior * likelihood;
+    });
+
+    const posteriors = {};
+    Object.entries(localDiseaseDatabase).forEach(([disease, diseaseInfo]) => {
+      posteriors[disease] = totalEvidence > 0
+        ? (diseaseInfo.prior * likelihoods[disease]) / totalEvidence
+        : diseaseInfo.prior;
+    });
+
+    const sorted = Object.entries(posteriors)
+      .sort((a, b) => b[1] - a[1])
+      .map(([disease, prob]) => ({
+        disease,
+        probability: prob,
+        likelihood: likelihoods[disease],
+        prior: localDiseaseDatabase[disease].prior,
+        isUserAdded: localDiseaseDatabase[disease].isUserAdded
+      }));
+
+    const top5 = sorted.filter(d => !d.isUserAdded).slice(0, 5);
+    const significantUserAdded = sorted.filter(d => d.isUserAdded && d.probability > 0.01);
+
+    return [...top5, ...significantUserAdded];
+  }, [patientData, localDiseaseDatabase, suspectedDiagnoses, calculateLikelihood, hasData]);
+
+  useEffect(() => {
+    if (!svgRef.current || posteriorProbabilities.length === 0 || !hasData || !d3Module) return;
+
+    const svg = d3Module.select(svgRef.current);
+    svg.selectAll("*").remove();
+
+    const margin = { top: 40, right: 20, bottom: 120, left: 50 };
+    const width = 450 - margin.left - margin.right;
+    const height = 350 - margin.top - margin.bottom;
+
+    const g = svg.append("g")
+      .attr("transform", `translate(${margin.left},${margin.top})`);
+
+    const x = d3Module.scaleBand()
+      .range([0, width])
+      .padding(0.1)
+      .domain(posteriorProbabilities.map(d => d.disease));
+
+    const y = d3Module.scaleLinear()
+      .range([height, 0])
+      .domain([0, Math.max(...posteriorProbabilities.map(d => d.probability))]);
+
+    const gradientCore = svg.append("defs")
+      .append("linearGradient")
+      .attr("id", "bar-gradient-core")
+      .attr("x1", "0%").attr("y1", "0%")
+      .attr("x2", "0%").attr("y2", "100%");
+
+    gradientCore.append("stop")
+      .attr("offset", "0%")
+      .attr("stop-color", "#4a90e2");
+
+    gradientCore.append("stop")
+      .attr("offset", "100%")
+      .attr("stop-color", "#357abd");
+
+    const gradientUser = svg.append("defs")
+      .append("linearGradient")
+      .attr("id", "bar-gradient-user")
+      .attr("x1", "0%").attr("y1", "0%")
+      .attr("x2", "0%").attr("y2", "100%");
+
+    gradientUser.append("stop")
+      .attr("offset", "0%")
+      .attr("stop-color", "#9b59b6");
+
+    gradientUser.append("stop")
+      .attr("offset", "100%")
+      .attr("stop-color", "#8e44ad");
+
+    g.selectAll(".bar")
+      .data(posteriorProbabilities)
+      .enter().append("rect")
+      .attr("class", "bar")
+      .attr("x", d => x(d.disease))
+      .attr("width", x.bandwidth())
+      .attr("y", height)
+      .attr("height", 0)
+      .attr("fill", d => d.isUserAdded ? "url(#bar-gradient-user)" : "url(#bar-gradient-core)")
+      .transition()
+      .duration(750)
+      .attr("y", d => y(d.probability))
+      .attr("height", d => height - y(d.probability));
+
+    g.selectAll(".text")
+      .data(posteriorProbabilities)
+      .enter().append("text")
+      .attr("x", d => x(d.disease) + x.bandwidth() / 2)
+      .attr("y", d => y(d.probability) - 5)
+      .attr("text-anchor", "middle")
+      .attr("font-size", "10px")
+      .attr("font-weight", "bold")
+      .text(d => (d.probability * 100).toFixed(1) + '%');
+
+    g.selectAll(".likelihood")
+      .data(posteriorProbabilities)
+      .enter().append("text")
+      .attr("x", d => x(d.disease) + x.bandwidth() / 2)
+      .attr("y", d => y(d.probability) + 15)
+      .attr("text-anchor", "middle")
+      .attr("font-size", "8px")
+      .attr("fill", "#666")
+      .text(d => `L: ${d.likelihood.toFixed(2)}`);
+
+    // X axis
+    g.append("g")
+      .attr("transform", `translate(0,${height})`)
+      .call(d3Module.axisBottom(x))
+      .selectAll("text")
+      .attr("transform", "rotate(-45)")
+      .style("text-anchor", "end")
+      .attr("dx", "-.8em")
+      .attr("dy", ".15em");
+
+    // Y axis
+    g.append("g")
+      .call(d3Module.axisLeft(y).ticks(5).tickFormat(d => (d * 100).toFixed(0) + '%'));
+
+    // Title
+    svg.append("text")
+      .attr("x", width / 2 + margin.left)
+      .attr("y", 20)
+      .attr("text-anchor", "middle")
+      .attr("font-size", "14px")
+      .attr("font-weight", "bold")
+      .text("Bayesian Disease Probability Analysis");
+
+    // Legend
+    const legend = svg.append("g")
+      .attr("transform", `translate(${width + margin.left - 100}, 40)`);
+
+    legend.append("rect")
+      .attr("width", 15)
+      .attr("height", 15)
+      .attr("fill", "url(#bar-gradient-core)");
+
+    legend.append("text")
+      .attr("x", 20)
+      .attr("y", 12)
+      .attr("font-size", "10px")
+      .text("Core DB");
+
+    legend.append("rect")
+      .attr("y", 20)
+      .attr("width", 15)
+      .attr("height", 15)
+      .attr("fill", "url(#bar-gradient-user)");
+
+    legend.append("text")
+      .attr("x", 20)
+      .attr("y", 32)
+      .attr("font-size", "10px")
+      .text("Suspected");
+
+  }, [posteriorProbabilities, hasData, d3Module]);
+
+  if (!hasData || !d3Module) {
+    return (
+      <div className="bg-white border-2 border-gray-300 p-4">
+        <h3 className="text-sm font-bold mb-3">Bayesian Disease Analysis</h3>
+        <div className="h-64 flex items-center justify-center text-gray-500 text-sm">
+          {!d3Module ? (
+            <Loader2 className="h-8 w-8 animate-spin text-gray-400" />
+          ) : (
+            "No patient data available. Enter clinical data to begin analysis."
+          )}
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="bg-white border-2 border-gray-300 p-4">
+      <h3 className="text-sm font-bold mb-3">Bayesian Disease Analysis</h3>
+      <svg ref={svgRef} width={450} height={350} />
+      <div className="mt-4 space-y-2 text-xs">
+        <div className="font-semibold">Top Differential Diagnoses:</div>
+        {posteriorProbabilities.slice(0, 5).map((result, idx) => (
+          <div key={idx} className="flex justify-between items-center p-2 bg-gray-50 rounded">
+            <span className={`font-medium ${result.isUserAdded ? 'text-purple-600' : ''}`}>
+              {idx + 1}. {result.disease}
+            </span>
+            <div className="text-right">
+              <span className="font-bold">{(result.probability * 100).toFixed(1)}%</span>
+              <span className="text-gray-500 ml-2">
+                (Prior: {(result.prior * 100).toFixed(1)}%)
+              </span>
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+};
+
+// Replace the N8nResultsDisplay component with this improved version:
+const N8nResultsDisplay = ({ results }) => {
+  const [displayFormat, setDisplayFormat] = useState('bullets');
+
+  if (!results) return null;
+
+  const renderBulletFormat = () => {
+    return (
+      <div className="space-y-4">
+        {results.urgency_level && (
+          <div className={`p-3 rounded ${
+            results.urgency_level === 'EMERGENT' ? 'bg-red-100 border-red-300' :
+            results.urgency_level === 'URGENT' ? 'bg-orange-100 border-orange-300' :
+            results.urgency_level === 'SEMI-URGENT' ? 'bg-yellow-100 border-yellow-300' :
+            'bg-green-100 border-green-300'
+          } border`}>
+            <h4 className="font-semibold text-sm mb-1">Urgency Level: {results.urgency_level}</h4>
+            {results.critical_findings?.triage_recommendation && (
+              <p className="text-sm">{results.critical_findings.triage_recommendation}</p>
+            )}
+          </div>
+        )}
+
+        {results.summary && (
+          <div className="bg-blue-50 p-3 rounded">
+            <h4 className="font-semibold text-sm mb-1">Summary:</h4>
+            <p className="text-sm text-gray-700">{results.summary}</p>
+          </div>
+        )}
+
+        {results.diagnoses && results.diagnoses.length > 0 && (
+          <div>
+            <h4 className="font-semibold text-sm mb-2">Suggested Diagnoses:</h4>
+            <ul className="list-disc list-inside space-y-1">
+              {results.diagnoses.map((diagnosis, idx) => (
+                <li key={idx} className="text-sm text-gray-700">
+                  {typeof diagnosis === 'object' ?
+                    `${diagnosis.description || diagnosis.condition} ${diagnosis.icd10_code ? `(${diagnosis.icd10_code})` : ''} - ${(diagnosis.probability * 100 || diagnosis.confidence * 100 || 0).toFixed(0)}% confidence` :
+                    diagnosis
+                  }
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
+
+        {results.recommendations && results.recommendations.length > 0 && (
+          <div>
+            <h4 className="font-semibold text-sm mb-2">Recommendations:</h4>
+            <ul className="list-disc list-inside space-y-1">
+              {results.recommendations.map((rec, idx) => (
+                <li key={idx} className="text-sm text-gray-700">{rec}</li>
+              ))}
+            </ul>
+          </div>
+        )}
+
+        {results.labs_to_order && results.labs_to_order.length > 0 && (
+          <div>
+            <h4 className="font-semibold text-sm mb-2">Suggested Labs:</h4>
+            <ul className="list-disc list-inside space-y-1">
+              {results.labs_to_order.map((lab, idx) => (
+                <li key={idx} className="text-sm text-gray-700">{lab}</li>
+              ))}
+            </ul>
+          </div>
+        )}
+
+        {results.confidence !== undefined && (
+          <div className="flex items-center gap-2">
+            <span className="text-sm font-semibold">Confidence:</span>
+            <div className="flex-1 bg-gray-200 rounded-full h-4">
+              <div
+                className="bg-blue-500 h-4 rounded-full"
+                style={{ width: `${results.confidence * 100}%` }}
+              />
+            </div>
+            <span className="text-sm">{(results.confidence * 100).toFixed(0)}%</span>
+          </div>
+        )}
+      </div>
+    );
+  };
+
+  const renderTextFormat = () => {
+    return (
+      <div className="prose prose-sm max-w-none space-y-4">
+        {results.summary && (
+          <div>
+            <h4 className="font-semibold">Clinical Summary</h4>
+            <p className="text-gray-700">{results.summary}</p>
+          </div>
+        )}
+
+        {results.diagnostic_report && (
+          <div>
+            <h4 className="font-semibold">Diagnostic Report</h4>
+            {results.diagnostic_report.clinical_reasoning && (
+              <p className="text-gray-700">{results.diagnostic_report.clinical_reasoning}</p>
+            )}
+            {results.diagnostic_report.primary_diagnosis && (
+              <p className="text-gray-700 mt-2">
+                <strong>Primary Diagnosis:</strong> {results.diagnostic_report.primary_diagnosis.description}
+                ({results.diagnostic_report.primary_diagnosis.icd10_code})
+              </p>
+            )}
+          </div>
+        )}
+
+        {results.critical_findings && results.critical_findings.red_flags && (
+          <div>
+            <h4 className="font-semibold text-red-600">Critical Findings</h4>
+            <ul className="list-disc list-inside">
+              {results.critical_findings.red_flags.map((flag, idx) => (
+                <li key={idx} className="text-red-700">{flag}</li>
+              ))}
+            </ul>
+          </div>
+        )}
+      </div>
+    );
+  };
+
+  const renderJsonFormat = () => {
+    return (
+      <pre className="text-xs overflow-auto bg-gray-50 p-3 rounded">
+        {JSON.stringify(results, null, 2)}
+      </pre>
+    );
+  };
+
+  return (
+    <div className="bg-white shadow rounded-lg p-4">
+      <div className="flex justify-between items-center mb-4">
+        <h2 className="text-lg font-bold flex items-center gap-2">
+          <BarChart3 size={18} />
+          AI Analysis Results
+          <span className="text-xs text-gray-500 font-normal">
+            {results.timestamp ? new Date(results.timestamp).toLocaleTimeString() : ''}
+          </span>
+        </h2>
+        <div className="flex gap-2">
+          <button
+            onClick={() => setDisplayFormat('bullets')}
+            className={`px-3 py-1 text-xs rounded ${
+              displayFormat === 'bullets' ? 'bg-blue-500 text-white' : 'bg-gray-200'
+            }`}
+          >
+            Summary
+          </button>
+          <button
+            onClick={() => setDisplayFormat('text')}
+            className={`px-3 py-1 text-xs rounded ${
+              displayFormat === 'text' ? 'bg-blue-500 text-white' : 'bg-gray-200'
+            }`}
+          >
+            Report
+          </button>
+          <button
+            onClick={() => setDisplayFormat('json')}
+            className={`px-3 py-1 text-xs rounded ${
+              displayFormat === 'json' ? 'bg-blue-500 text-white' : 'bg-gray-200'
+            }`}
+          >
+            Raw Data
+          </button>
+        </div>
+      </div>
+
+      <div className="bg-gray-50 p-4 rounded">
+        {displayFormat === 'bullets' && renderBulletFormat()}
+        {displayFormat === 'text' && renderTextFormat()}
+        {displayFormat === 'json' && renderJsonFormat()}
+      </div>
+    </div>
+  );
+};
+
+// Main Component
+const DiagnoVeraEnterpriseInterface = () => {
   const [patientData, setPatientData] = useState({
-    demographics: {
-      age: '',
-      sex: '',
-      mrn: '',
-      name: '',
-      provider: ''
-    },
+    demographics: { mrn: '', age: '', sex: 'Male' },
     subjective: {
       chiefComplaint: '',
       symptoms: [],
-      pastMedicalHistory: [],
-      pastSurgicalHistory: [],
-      socialHistory: [],
-      familyHistory: [],
+      medications: [],
       allergyHistory: [],
-      medications: []
+      pastMedicalHistory: [],
+      pastSurgicalHistory: []
     },
     objective: {
       vitals: {
-        weight: '',
         temperature: '',
         heartRate: '',
+        bloodPressure: '',
         respiratoryRate: '',
-        systolicBP: '',
-        diastolicBP: '',
-        o2Saturation: '',
-        urineOutput: '',
-        urineOutputUnit: 'mL/hr'
+        o2Saturation: ''
       },
       laboratory: [],
-      examFindings: [],
-      imaging: [],
-      procedures: [],
-      pathology: []
+      imaging: []
     }
   });
 
-  // Preload critical data files on mount
+  const [processedData, setProcessedData] = useState({});
+  const [showConnections, setShowConnections] = useState(true);
+  const [showLabels, setShowLabels] = useState(true);
+  const [selectedDomains, setSelectedDomains] = useState('all');
+  const [suspectedDiagnoses, setSuspectedDiagnoses] = useState([]);
+  const [n8nStatus, setN8nStatus] = useState('disconnected');
+  const [n8nResults, setN8nResults] = useState(null);
+  const [isProcessing, setIsProcessing] = useState(false);
+  const [error, setError] = useState(null);
+
+  // Connect to WebSocket on mount
   useEffect(() => {
-    preloadDataFiles([
-      'chief-complaints',
-      'symptoms',
-      'laboratory-tests',
-      'exam-findings',
-      'imaging-studies'
-    ]);
+    console.log('Home page mounted');
+    console.log('Backend URL:', config.BACKEND_URL);
+    
+    const connectTimer = setTimeout(() => {
+      try {
+        websocketService.connect();
+
+        websocketService.onN8nUpdate((data) => {
+          console.log('Received n8n update:', data);
+          setN8nResults(data);
+          setN8nStatus('connected');
+
+          if (data.diagnoses) {
+            setSuspectedDiagnoses(prev => [...new Set([...prev, ...data.diagnoses])]);
+          }
+        });
+
+        websocketService.onConnectionError((error) => {
+          console.warn('WebSocket connection failed, continuing in offline mode');
+          setN8nStatus('offline');
+        });
+      } catch (error) {
+        console.error('WebSocket setup error:', error);
+        setN8nStatus('offline');
+      }
+    }, 100);
+
+    return () => {
+      clearTimeout(connectTimer);
+      websocketService.disconnect();
+    };
   }, []);
 
-  // CONSISTENT Domain configuration with FIXED angular positions
-  const domainConfig = {
-    // Subjective domains (0-180°)
-    chiefComplaint: { color: '#E84855', baseAngle: 0, angleStep: 0, magnitude: 0.9 },
-    symptoms: { color: '#3CBBB1', baseAngle: 15, angleStep: 5, magnitude: 0.7 },
-    pastMedicalHistory: { color: '#8B5A3C', baseAngle: 45, angleStep: 4, magnitude: 0.6 },
-    pastSurgicalHistory: { color: '#D4A574', baseAngle: 70, angleStep: 4, magnitude: 0.6 },
-    socialHistory: { color: '#4682B4', baseAngle: 95, angleStep: 4, magnitude: 0.5 },
-    familyHistory: { color: '#9370DB', baseAngle: 120, angleStep: 4, magnitude: 0.5 },
-    allergyHistory: { color: '#DC143C', baseAngle: 145, angleStep: 4, magnitude: 0.8 },
-    medications: { color: '#FF6B6B', baseAngle: 170, angleStep: 3, magnitude: 0.7 },
-    
-    // Objective domains (180-360°)
-    vitals: { color: '#4ECDC4', baseAngle: 180, angleStep: 5, magnitude: 0.8 },
-    laboratory: { color: '#95E1D3', baseAngle: 225, angleStep: 3, magnitude: 0.7 },
-    examFindings: { color: '#F38181', baseAngle: 270, angleStep: 4, magnitude: 0.6 },
-    imaging: { color: '#FECA57', baseAngle: 315, angleStep: 5, magnitude: 0.65 },
-    procedures: { color: '#48DBFB', baseAngle: 340, angleStep: 4, magnitude: 0.7 },
-    pathology: { color: '#FF9FF3', baseAngle: 355, angleStep: 3, magnitude: 0.75 }
-  };
+  // Preload data files on mount
+  useEffect(() => {
+    const criticalFiles = [
+      'symptoms',
+      'medications',
+      'allergies',
+      'past_medical_history',
+      'past_surgical_history',
+      'vital_signs',
+      'laboratory_tests',
+      'imaging_studies',
+      'diagnoses'
+    ];
+    preloadDataFiles(criticalFiles);
+  }, []);
 
-  // Deterministic angle calculation
-  const getItemAngle = (domainKey, itemIndex, itemValue) => {
-    const config = domainConfig[domainKey];
-    const hash = itemValue.split('').reduce((acc, char) => acc + char.charCodeAt(0), 0);
-    const subAngle = (hash % 10) * 0.1;
-    return (config.baseAngle + (itemIndex * config.angleStep) + subAngle) % 360;
-  };
-
-  const updatePatientData = useCallback((domain, field, value) => {
+  const updateDemographics = useCallback((field, value) => {
     setPatientData(prev => ({
       ...prev,
-      [domain]: {
-        ...prev[domain],
-        [field]: value
-      }
+      demographics: { ...prev.demographics, [field]: value }
     }));
   }, []);
 
-  const updateVital = useCallback((vitalName, value) => {
+  const updateSubjective = useCallback((field, value) => {
+    setPatientData(prev => ({
+      ...prev,
+      subjective: { ...prev.subjective, [field]: value }
+    }));
+  }, []);
+
+  const updateVitals = useCallback((field, value) => {
     setPatientData(prev => ({
       ...prev,
       objective: {
         ...prev.objective,
-        vitals: {
-          ...prev.objective.vitals,
-          [vitalName]: value
-        }
+        vitals: { ...prev.objective.vitals, [field]: value }
       }
     }));
   }, []);
 
-  // Convert to complex numbers format
-  const processedData = useMemo(() => {
-    const complexData = {};
-    
-    const toComplex = (angle, magnitude) => {
-      const radian = angle * Math.PI / 180;
-      return {
-        real: magnitude * Math.cos(radian),
-        imaginary: magnitude * Math.sin(radian),
-        magnitude,
-        angle
-      };
+  const updateLaboratory = useCallback((value) => {
+    setPatientData(prev => ({
+      ...prev,
+      objective: { ...prev.objective, laboratory: value }
+    }));
+  }, []);
+
+  const updateImaging = useCallback((value) => {
+    setPatientData(prev => ({
+      ...prev,
+      objective: { ...prev.objective, imaging: value }
+    }));
+  }, []);
+
+  // Process data into complex plane format
+  const processDataToComplexPlane = useCallback(() => {
+    const complexData = {
+      symptoms: [],
+      vitals: [],
+      labs: [],
+      medications: []
     };
 
-    // Process chief complaint
-    if (patientData.subjective.chiefComplaint) {
-      const angle = getItemAngle('chiefComplaint', 0, patientData.subjective.chiefComplaint);
-      complexData.chiefComplaint = [{
-        name: patientData.subjective.chiefComplaint,
-        ...toComplex(angle, domainConfig.chiefComplaint.magnitude),
-        color: domainConfig.chiefComplaint.color
-      }];
-    }
-
-    // Process all array fields
-    const arrayFields = [
-      { data: patientData.subjective.symptoms, key: 'symptoms' },
-      { data: patientData.subjective.pastMedicalHistory, key: 'pastMedicalHistory' },
-      { data: patientData.subjective.pastSurgicalHistory, key: 'pastSurgicalHistory' },
-      { data: patientData.subjective.socialHistory, key: 'socialHistory' },
-      { data: patientData.subjective.familyHistory, key: 'familyHistory' },
-      { data: patientData.subjective.allergyHistory, key: 'allergyHistory' },
-      { data: patientData.subjective.medications, key: 'medications' },
-      { data: patientData.objective.examFindings, key: 'examFindings' },
-      { data: patientData.objective.procedures, key: 'procedures' },
-      { data: patientData.objective.pathology, key: 'pathology' }
-    ];
-
-    arrayFields.forEach(({ data, key }) => {
-      if (Array.isArray(data) && data.length > 0) {
-        const sortedData = [...data].sort();
-        complexData[key] = sortedData.map((item, index) => {
-          const angle = getItemAngle(key, index, item);
-          return {
-            name: item,
-            ...toComplex(angle, domainConfig[key].magnitude),
-            color: domainConfig[key].color
-          };
-        });
-      }
+    // Process symptoms
+    patientData.subjective.symptoms.forEach((symptom, idx) => {
+      const angle = (idx * 30) % 360;
+      const magnitude = 0.7 + Math.random() * 0.3;
+      complexData.symptoms.push({
+        name: symptom,
+        real: magnitude * Math.cos(angle * Math.PI / 180),
+        imaginary: magnitude * Math.sin(angle * Math.PI / 180),
+        magnitude,
+        angle,
+        color: '#e74c3c'
+      });
     });
 
     // Process vitals
-    const vitalsList = [
-      { key: 'weight', name: 'Weight', position: 0 },
-      { key: 'temperature', name: 'Temp', position: 1, normal: [97, 99] },
-      { key: 'heartRate', name: 'HR', position: 2, normal: [60, 100] },
-      { key: 'respiratoryRate', name: 'RR', position: 3, normal: [12, 20] },
-      { key: 'systolicBP', name: 'SBP', position: 4, normal: [90, 120] },
-      { key: 'diastolicBP', name: 'DBP', position: 5, normal: [60, 80] },
-      { key: 'o2Saturation', name: 'O2', position: 6, normal: [95, 100] },
-      { key: 'urineOutput', name: 'UO', position: 7 }
-    ];
-
-    const vitalsData = [];
-    vitalsList.forEach((vital) => {
-      const value = patientData.objective?.vitals?.[vital.key];
+    Object.entries(patientData.objective.vitals).forEach(([vital, value], idx) => {
       if (value) {
-        let magnitude = domainConfig.vitals.magnitude;
-        if (vital.normal) {
-          const numValue = parseFloat(value);
-          if (!isNaN(numValue)) {
-            const [min, max] = vital.normal;
-            if (numValue < min || numValue > max) {
-              magnitude = Math.min(0.95, magnitude * 1.3);
-            }
-          }
-        }
-        const angle = domainConfig.vitals.baseAngle + (vital.position * domainConfig.vitals.angleStep);
-        let displayValue = `${vital.name}: ${value}`;
-        if (vital.key === 'urineOutput' && patientData.objective.vitals.urineOutputUnit) {
-          displayValue += ` ${patientData.objective.vitals.urineOutputUnit}`;
-        }
-        vitalsData.push({
-          name: displayValue,
-          ...toComplex(angle, magnitude),
-          color: domainConfig.vitals.color
+        const angle = 90 + (idx * 20);
+        const normalizedValue = parseFloat(value) / 100;
+        const magnitude = Math.min(normalizedValue, 1);
+        complexData.vitals.push({
+          name: vital,
+          real: magnitude * Math.cos(angle * Math.PI / 180),
+          imaginary: magnitude * Math.sin(angle * Math.PI / 180),
+          magnitude,
+          angle,
+          color: '#3498db'
         });
       }
     });
-    if (vitalsData.length > 0) complexData.vitals = vitalsData;
 
-    // Process laboratory
-    const labData = [];
-    if (patientData.objective?.laboratory?.length > 0) {
-      const sortedLabs = [...patientData.objective.laboratory].sort((a, b) => a.name.localeCompare(b.name));
-      sortedLabs.forEach((lab, index) => {
-        if (lab.name && lab.value) {
-          const angle = getItemAngle('laboratory', index, lab.name);
-          labData.push({
-            name: `${lab.name}: ${lab.value}${lab.unit || ''}`,
-            ...toComplex(angle, domainConfig.laboratory.magnitude),
-            color: domainConfig.laboratory.color
-          });
-        }
-      });
-    }
-    if (labData.length > 0) complexData.laboratory = labData;
-
-    // Process imaging
-    const imagingData = [];
-    if (patientData.objective?.imaging?.length > 0) {
-      const sortedImaging = [...patientData.objective.imaging].sort((a, b) => a.study.localeCompare(b.study));
-      sortedImaging.forEach((img, index) => {
-        const angle = getItemAngle('imaging', index, img.study);
-        const magnitude = img.findings ? domainConfig.imaging.magnitude * 1.1 : domainConfig.imaging.magnitude;
-        imagingData.push({
-          name: img.study,
-          findings: img.findings,
-          ...toComplex(angle, magnitude),
-          color: domainConfig.imaging.color
+    // Process labs
+    patientData.objective.laboratory.forEach((lab, idx) => {
+      if (lab.value) {
+        const angle = 180 + (idx * 25);
+        const magnitude = 0.6 + Math.random() * 0.4;
+        complexData.labs.push({
+          name: `${lab.name}: ${lab.value} ${lab.unit}`,
+          real: magnitude * Math.cos(angle * Math.PI / 180),
+          imaginary: magnitude * Math.sin(angle * Math.PI / 180),
+          magnitude,
+          angle,
+          color: '#27ae60'
         });
+      }
+    });
+
+    // Process medications
+    patientData.subjective.medications.forEach((med, idx) => {
+      const angle = 270 + (idx * 15);
+      const magnitude = 0.5 + Math.random() * 0.5;
+      complexData.medications.push({
+        name: med,
+        real: magnitude * Math.cos(angle * Math.PI / 180),
+        imaginary: magnitude * Math.sin(angle * Math.PI / 180),
+        magnitude,
+        angle,
+        color: '#f39c12'
       });
+    });
+
+    setProcessedData(complexData);
+  }, [patientData]);
+
+  // Process data when patient data changes
+  useEffect(() => {
+    processDataToComplexPlane();
+  }, [patientData, processDataToComplexPlane]);
+
+// Replace the submitToN8n function (around line 1971) with this:
+const submitToN8n = async () => {
+  setIsProcessing(true);
+  setError(null);
+  setN8nStatus('processing');
+
+  try {
+    // Ensure we have at least some clinical data
+    if (!patientData.subjective.chiefComplaint &&
+        (!patientData.subjective.symptoms || patientData.subjective.symptoms.length === 0)) {
+      setError('Please enter a chief complaint or select at least one symptom');
+      setN8nStatus('error');
+      return;
     }
-    if (imagingData.length > 0) complexData.imaging = imagingData;
 
-    return complexData;
-  }, [patientData, domainConfig, getItemAngle]);
-
-  // Export complex data
-  const exportComplexData = () => {
-    const exportData = {
+    // Send to n8n webhook
+    const payload = {
+      // Patient identification
+      patient_id: patientData.demographics.mrn || `TEMP-${Date.now()}`,
       timestamp: new Date().toISOString(),
-      patient: patientData.demographics,
-      complexPlaneData: processedData,
-      metadata: {
-        domainConfig,
-        totalDataPoints: Object.values(processedData).flat().length,
-        angleMapping: "Consistent deterministic angles based on domain and item position"
+
+      // Demographics
+      age: patientData.demographics.age || '',
+      gender: patientData.demographics.sex || 'Unknown',
+      demographics: {
+        mrn: patientData.demographics.mrn || `TEMP-${Date.now()}`,
+        age: patientData.demographics.age || '',
+        sex: patientData.demographics.sex || 'Unknown'
+      },
+
+      // Clinical data - ensure proper format
+      chief_complaint: patientData.subjective.chiefComplaint || '',
+      symptoms: patientData.subjective.symptoms || [],
+
+      // Additional clinical context
+      text: `${patientData.subjective.chiefComplaint || 'No chief complaint'}. Patient reports: ${(patientData.subjective.symptoms || []).join(', ') || 'No specific symptoms'}`,
+
+      // Vitals
+      vitals: patientData.objective.vitals || {},
+
+      // History and medications
+      medications: patientData.subjective.medications || [],
+      allergies: patientData.subjective.allergyHistory || [],
+      medical_history: patientData.subjective.pastMedicalHistory || [],
+
+      // Diagnostic data
+      laboratory: patientData.objective.laboratory || [],
+      imaging: patientData.objective.imaging || [],
+
+      // Complex analysis
+      complex_analysis: processedData || {},
+
+      // Include nested structure as well (in case n8n expects it)
+      subjective: {
+        chiefComplaint: patientData.subjective.chiefComplaint || '',
+        symptoms: patientData.subjective.symptoms || [],
+        medications: patientData.subjective.medications || [],
+        allergyHistory: patientData.subjective.allergyHistory || [],
+        pastMedicalHistory: patientData.subjective.pastMedicalHistory || [],
+        pastSurgicalHistory: patientData.subjective.pastSurgicalHistory || []
+      },
+      objective: {
+        vitals: patientData.objective.vitals || {},
+        laboratory: patientData.objective.laboratory || [],
+        imaging: patientData.objective.imaging || []
       }
     };
-    
-    const blob = new Blob([JSON.stringify(exportData, null, 2)], { type: 'application/json' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `diagnovera_${patientData.demographics.mrn || 'patient'}_${Date.now()}.json`;
-    a.click();
-  };
 
-  const renderSubjectiveDomain = () => (
-    <div className="space-y-2">
-      <EpicAutocompleteField
-        label="Chief Complaint"
-        dataFile="chief-complaints"
-        value={patientData.subjective.chiefComplaint}
-        onChange={(value) => updatePatientData('subjective', 'chiefComplaint', value)}
-        placeholder="Select chief complaint..."
-        color={domainConfig.chiefComplaint.color}
-      />
-      
-      <EpicAutocompleteField
-        label="Symptoms"
-        dataFile="symptoms"
-        value={patientData.subjective.symptoms}
-        onChange={(value) => updatePatientData('subjective', 'symptoms', value)}
-        placeholder="Add symptoms..."
-        multiple={true}
-        color={domainConfig.symptoms.color}
-      />
+    console.log('Sending to n8n:', payload);
+    console.log('Chief complaint:', payload.chief_complaint);
+    console.log('Symptoms count:', payload.symptoms.length);
 
-      <EpicAutocompleteField
-        label="Past Medical History"
-        dataFile="past-medical-history"
-        value={patientData.subjective.pastMedicalHistory}
-        onChange={(value) => updatePatientData('subjective', 'pastMedicalHistory', value)}
-        placeholder="Add conditions..."
-        multiple={true}
-        color={domainConfig.pastMedicalHistory.color}
-      />
+    const response = await fetch(config.N8N_WEBHOOK_URL, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(payload)
+    });
 
-      <EpicAutocompleteField
-        label="Past Surgical History"
-        dataFile="past-surgical-history"
-        value={patientData.subjective.pastSurgicalHistory}
-        onChange={(value) => updatePatientData('subjective', 'pastSurgicalHistory', value)}
-        placeholder="Add surgeries..."
-        multiple={true}
-        color={domainConfig.pastSurgicalHistory.color}
-      />
+    if (!response.ok) {
+      throw new Error(`HTTP error! status: ${response.status}`);
+    }
 
-      <EpicAutocompleteField
-        label="Social History"
-        dataFile="social-history"
-        value={patientData.subjective.socialHistory}
-        onChange={(value) => updatePatientData('subjective', 'socialHistory', value)}
-        placeholder="Add social factors..."
-        multiple={true}
-        color={domainConfig.socialHistory.color}
-      />
+    const result = await response.json();
+    console.log('n8n response:', result);
 
-      <EpicAutocompleteField
-        label="Family History"
-        dataFile="family-history"
-        value={patientData.subjective.familyHistory}
-        onChange={(value) => updatePatientData('subjective', 'familyHistory', value)}
-        placeholder="Add family conditions..."
-        multiple={true}
-        color={domainConfig.familyHistory.color}
-      />
+    // Set the results immediately
+    setN8nResults({
+      diagnoses: result.diagnoses || result.diagnosis_list || [],
+      recommendations: result.recommendations || [],
+      labs_to_order: result.labs_to_order || [],
+      confidence: result.confidence || 0,
+      summary: result.summary || 'Analysis complete',
+      urgency_level: result.urgency_level || 'ROUTINE',
+      critical_findings: result.critical_findings || {},
+      diagnostic_report: result.diagnostic_report || {},
+      timestamp: new Date().toISOString()
+    });
 
-      <EpicAutocompleteField
-        label="Allergy History"
-        dataFile="allergy-history"
-        value={patientData.subjective.allergyHistory}
-        onChange={(value) => updatePatientData('subjective', 'allergyHistory', value)}
-        placeholder="Add allergies..."
-        multiple={true}
-        color={domainConfig.allergyHistory.color}
-      />
-      
-      <EpicAutocompleteField
-        label="Current Medications"
-        dataFile="medications"
-        value={patientData.subjective.medications}
-        onChange={(value) => updatePatientData('subjective', 'medications', value)}
-        placeholder="Add medications..."
-        multiple={true}
-        color={domainConfig.medications.color}
-      />
-    </div>
-  );
+    setN8nStatus('completed');
 
-  const renderObjectiveDomain = () => (
-    <div className="space-y-2">
-      {/* Vitals Section */}
-      <div className="bg-gradient-to-r from-teal-50 to-cyan-50 border-2 border-teal-200 p-3">
-        <div className="flex items-center mb-2">
-          <div className="w-2 h-2 rounded-full mr-2" style={{ backgroundColor: domainConfig.vitals.color }} />
-          <h4 className="text-xs font-semibold text-gray-700 uppercase tracking-wide">Vital Signs</h4>
-        </div>
-        <div className="grid grid-cols-2 gap-2">
-          {[
-            { key: 'weight', label: 'Weight (kg)', placeholder: 'kg' },
-            { key: 'temperature', label: 'Temperature (°F)', placeholder: '97-99' },
-            { key: 'heartRate', label: 'Heart Rate', placeholder: '60-100' },
-            { key: 'respiratoryRate', label: 'Resp Rate', placeholder: '12-20' },
-            { key: 'systolicBP', label: 'Systolic BP', placeholder: '90-120' },
-            { key: 'diastolicBP', label: 'Diastolic BP', placeholder: '60-80' },
-            { key: 'o2Saturation', label: 'O2 Sat (%)', placeholder: '95-100' }
-          ].map(vital => (
-            <div key={vital.key}>
-              <label className="block text-xs font-medium text-gray-600 mb-1">
-                {vital.label}
-              </label>
-              <input
-                type="number"
-                value={patientData.objective.vitals[vital.key]}
-                onChange={(e) => updateVital(vital.key, e.target.value)}
-                className="w-full p-1.5 text-sm border-2 border-gray-200 focus:border-teal-400 rounded"
-                placeholder={vital.placeholder}
-              />
-            </div>
-          ))}
-          <div className="col-span-2">
-            <label className="block text-xs font-medium text-gray-600 mb-1">
-              Urine Output
-            </label>
-            <div className="flex gap-2">
-              <input
-                type="number"
-                value={patientData.objective.vitals.urineOutput}
-                onChange={(e) => updateVital('urineOutput', e.target.value)}
-                className="flex-1 p-1.5 text-sm border-2 border-gray-200 focus:border-teal-400 rounded"
-                placeholder="Amount"
-              />
-              <select
-                value={patientData.objective.vitals.urineOutputUnit}
-                onChange={(e) => updateVital('urineOutputUnit', e.target.value)}
-                className="w-24 p-1.5 text-sm border-2 border-gray-200 focus:border-teal-400 rounded"
-              >
-                <option value="mL/hr">mL/hr</option>
-                <option value="mL/day">mL/day</option>
-                <option value="L/day">L/day</option>
-              </select>
-            </div>
-          </div>
-        </div>
-      </div>
+    // Update suspected diagnoses if we got any
+    if (result.diagnoses && result.diagnoses.length > 0) {
+      setSuspectedDiagnoses(prev => {
+        const newDiagnoses = result.diagnoses.filter(d => !prev.includes(d));
+        return [...prev, ...newDiagnoses];
+      });
+    }
 
-      <EpicLabField
-        label="Laboratory Tests"
-        dataFile="laboratory-tests"
-        value={patientData.objective.laboratory}
-        onChange={(value) => updatePatientData('objective', 'laboratory', value)}
-        placeholder="Add lab tests..."
-        color={domainConfig.laboratory.color}
-      />
+  } catch (err) {
+    console.error('Error submitting to n8n:', err);
+    setError(`Failed to analyze: ${err.message}`);
+    setN8nStatus('error');
 
-      <EpicAutocompleteField
-        label="Physical Exam"
-        dataFile="exam-findings"
-        value={patientData.objective.examFindings}
-        onChange={(value) => updatePatientData('objective', 'examFindings', value)}
-        placeholder="Add findings..."
-        multiple={true}
-        color={domainConfig.examFindings.color}
-      />
-      
-      <EpicImagingField
-        label="Imaging Studies"
-        dataFile="imaging-studies"
-        value={patientData.objective.imaging}
-        onChange={(value) => updatePatientData('objective', 'imaging', value)}
-        placeholder="Add imaging study..."
-        color={domainConfig.imaging.color}
-      />
-      
-      <EpicAutocompleteField
-        label="Procedures"
-        dataFile="procedures"
-        value={patientData.objective.procedures}
-        onChange={(value) => updatePatientData('objective', 'procedures', value)}
-        placeholder="Add procedures..."
-        multiple={true}
-        color={domainConfig.procedures.color}
-      />
+    // Provide mock results for testing if n8n fails
+    if (patientData.subjective.symptoms.length > 0) {
+      setN8nResults({
+        diagnoses: ['Differential diagnosis pending', 'Further evaluation needed'],
+        recommendations: [
+          'Complete physical examination',
+          'Review vital signs trend',
+          'Consider additional testing'
+        ],
+        labs_to_order: ['CBC', 'BMP', 'Urinalysis'],
+        confidence: 0.5,
+        summary: 'Analysis completed locally due to connection error',
+        urgency_level: 'ROUTINE',
+        timestamp: new Date().toISOString()
+      });
+    }
+  } finally {
+    setIsProcessing(false);
+  }
+};
 
-      <EpicAutocompleteField
-        label="Pathology"
-        dataFile="pathology"
-        value={patientData.objective.pathology}
-        onChange={(value) => updatePatientData('objective', 'pathology', value)}
-        placeholder="Add pathology..."
-        multiple={true}
-        color={domainConfig.pathology.color}
-      />
-    </div>
-  );
-
-  // Generate summary table data
-  const summaryTableData = useMemo(() => {
-    const allData = [];
-    Object.entries(processedData).forEach(([domain, points]) => {
-      if (Array.isArray(points)) {
-        points.forEach(point => {
-          allData.push({
-            domain: domain.charAt(0).toUpperCase() + domain.slice(1).replace(/([A-Z])/g, ' $1'),
-            name: point.name,
-            angle: point.angle,
-            real: point.real,
-            imaginary: point.imaginary,
-            magnitude: point.magnitude,
-            color: point.color
-          });
-        });
+  const resetForm = () => {
+    setPatientData({
+      demographics: { mrn: '', age: '', sex: 'Male' },
+      subjective: {
+        chiefComplaint: '',
+        symptoms: [],
+        medications: [],
+        allergyHistory: [],
+        pastMedicalHistory: [],
+        pastSurgicalHistory: []
+      },
+      objective: {
+        vitals: {
+          temperature: '',
+          heartRate: '',
+          bloodPressure: '',
+          respiratoryRate: '',
+          o2Saturation: ''
+        },
+        laboratory: [],
+        imaging: []
       }
     });
-    return allData.sort((a, b) => a.angle - b.angle);
-  }, [processedData]);
+    setProcessedData({});
+    setSuspectedDiagnoses([]);
+    setN8nResults(null);
+    setN8nStatus('disconnected');
+    setError(null);
+  };
+
+  const exportData = () => {
+    const exportObj = {
+      timestamp: new Date().toISOString(),
+      patientData,
+      processedData,
+      suspectedDiagnoses,
+      n8nResults
+    };
+
+    const dataStr = JSON.stringify(exportObj, null, 2);
+    const dataUri = 'data:application/json;charset=utf-8,'+ encodeURIComponent(dataStr);
+
+    const exportFileDefaultName = `diagnovera-patient-${patientData.demographics.mrn || 'unknown'}-${new Date().toISOString().split('T')[0]}.json`;
+
+    const linkElement = document.createElement('a');
+    linkElement.setAttribute('href', dataUri);
+    linkElement.setAttribute('download', exportFileDefaultName);
+    linkElement.click();
+  };
 
   return (
-    <div className="min-h-screen bg-gray-100">
-      {/* Epic-style Header */}
-      <header className="bg-gradient-to-r from-blue-800 to-blue-900 text-white shadow-lg">
-        <div className="px-4 py-3">
+    <div className="min-h-screen bg-gray-100 p-4">
+      <div className="max-w-7xl mx-auto">
+        {/* Header */}
+        <div className="bg-white shadow-md rounded-lg p-4 mb-4">
           <div className="flex justify-between items-center">
-            <div className="flex items-center space-x-4">
-              <div className="bg-white text-blue-800 px-3 py-1 rounded font-bold text-lg">
-                DIAGNOVERA
-              </div>
-              <div className="text-sm opacity-90">Clinical Complex Analysis System</div>
+            <div className="flex items-center gap-2">
+              <Brain className="h-8 w-8 text-blue-600" />
+              <h1 className="text-2xl font-bold text-gray-800">DiagnoVera Enterprise</h1>
+              <span className="text-sm text-gray-500">Clinical Decision Support System</span>
             </div>
-            <div className="flex items-center space-x-4">
-              <div className="text-sm">
-                <span className="opacity-75">Provider:</span>
-                <input
-                  type="text"
-                  value={patientData.demographics.provider}
-                  onChange={(e) => setPatientData(prev => ({
-                    ...prev,
-                    demographics: { ...prev.demographics, provider: e.target.value }
-                  }))}
-                  className="ml-2 px-2 py-1 bg-blue-700 border border-blue-600 rounded text-white placeholder-blue-300"
-                  placeholder="Enter name"
-                />
+            <div className="flex items-center gap-4">
+              <div className="flex items-center gap-2">
+                {n8nStatus === 'connected' ? (
+                  <Wifi className="h-4 w-4 text-green-500" />
+                ) : n8nStatus === 'offline' ? (
+                  <WifiOff className="h-4 w-4 text-yellow-500" />
+                ) : (
+                  <WifiOff className="h-4 w-4 text-red-500" />
+                )}
+                <span className="text-xs text-gray-600">
+                  {n8nStatus === 'offline' ? 'Offline Mode' : `n8n: ${n8nStatus}`}
+                </span>
               </div>
               <button
-                onClick={exportComplexData}
-                className="flex items-center gap-2 bg-green-600 hover:bg-green-700 px-3 py-1 rounded text-sm"
+                onClick={resetForm}
+                className="flex items-center gap-2 px-3 py-1 bg-gray-500 text-white rounded hover:bg-gray-600"
+              >
+                <RotateCcw size={14} />
+                Reset
+              </button>
+              <button
+                onClick={exportData}
+                className="flex items-center gap-2 px-3 py-1 bg-blue-500 text-white rounded hover:bg-blue-600"
               >
                 <Download size={14} />
-                Export Data
+                Export
               </button>
             </div>
           </div>
         </div>
-      </header>
 
-      {/* Patient Banner */}
-      <div className="bg-white border-b-2 border-gray-300 px-4 py-3">
-        <div className="grid grid-cols-4 gap-3">
-          {[
-            { key: 'name', label: 'Patient Name', placeholder: 'Last, First' },
-            { key: 'mrn', label: 'MRN', placeholder: 'Medical Record #' },
-            { key: 'age', label: 'Age', placeholder: 'Years', type: 'number' },
-            { key: 'sex', label: 'Sex', type: 'select' }
-          ].map(field => (
-            <div key={field.key}>
-              <label className="block text-xs font-bold text-gray-600 mb-1 uppercase">
-                {field.label}
-              </label>
-              {field.type === 'select' ? (
-                <select
-                  value={patientData.demographics[field.key]}
-                  onChange={(e) => setPatientData(prev => ({
-                    ...prev,
-                    demographics: { ...prev.demographics, [field.key]: e.target.value }
-                  }))}
-                  className="w-full p-2 text-sm border-2 border-gray-300 focus:border-blue-500 rounded"
-                >
-                  <option value="">Select...</option>
-                  <option value="M">Male</option>
-                  <option value="F">Female</option>
-                </select>
-              ) : (
+        {/* Main Content Grid */}
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+          {/* Patient Data Entry */}
+          <div className="lg:col-span-1 space-y-4">
+            {/* Demographics */}
+            <div className="bg-white shadow rounded-lg p-4">
+              <h2 className="text-lg font-bold mb-3 flex items-center gap-2">
+                <Type size={18} />
+                Demographics
+              </h2>
+              <div className="space-y-2">
                 <input
-                  type={field.type || 'text'}
-                  value={patientData.demographics[field.key]}
-                  onChange={(e) => setPatientData(prev => ({
-                    ...prev,
-                    demographics: { ...prev.demographics, [field.key]: e.target.value }
-                  }))}
-                  className="w-full p-2 text-sm border-2 border-gray-300 focus:border-blue-500 rounded"
-                  placeholder={field.placeholder}
+                  type="text"
+                  placeholder="MRN"
+                  value={patientData.demographics.mrn}
+                  onChange={(e) => updateDemographics('mrn', e.target.value)}
+                  className="w-full p-2 border rounded text-sm"
                 />
-              )}
-            </div>
-          ))}
-        </div>
-      </div>
-
-      {/* Main Content */}
-      <div className="flex gap-4 p-4">
-        {/* Left Panel - Navigation */}
-        <div className="w-48">
-          <div className="bg-white border-2 border-gray-300 shadow-md">
-            <div className="bg-gradient-to-r from-gray-700 to-gray-800 text-white px-3 py-2">
-              <h3 className="text-sm font-bold">CHART SECTIONS</h3>
-            </div>
-            <nav className="p-2">
-              {[
-                { id: 'subjective', name: 'Subjective', icon: '📝', color: '#3CBBB1' },
-                { id: 'objective', name: 'Objective', icon: '🔬', color: '#4ECDC4' }
-              ].map(domain => (
-                <button
-                  key={domain.id}
-                  onClick={() => setCurrentDomain(domain.id)}
-                  className={`w-full text-left px-3 py-2 mb-1 text-sm font-medium transition-all ${
-                    currentDomain === domain.id
-                      ? 'bg-blue-600 text-white shadow-md'
-                      : 'bg-gray-50 hover:bg-gray-100 text-gray-700'
-                  }`}
-                  style={{
-                    borderLeft: `4px solid ${currentDomain === domain.id ? domain.color : 'transparent'}`
-                  }}
-                >
-                  <span className="mr-2">{domain.icon}</span>
-                  {domain.name.toUpperCase()}
-                </button>
-              ))}
-            </nav>
-          </div>
-        </div>
-
-        {/* Center Panel - Documentation */}
-        <div className="flex-1">
-          <div className="bg-white border-2 border-gray-300 shadow-md">
-            <div className="bg-gradient-to-r from-blue-600 to-blue-700 text-white px-4 py-2">
-              <h3 className="text-sm font-bold uppercase">
-                {currentDomain === 'subjective' ? 'Subjective' : 'Objective'} Documentation
-              </h3>
-            </div>
-            <div className="p-4" style={{ maxHeight: '70vh', overflowY: 'auto' }}>
-              {currentDomain === 'subjective' ? renderSubjectiveDomain() : renderObjectiveDomain()}
-            </div>
-          </div>
-        </div>
-
-        {/* Right Panel - Visualization */}
-        <div className="w-[520px]">
-          <div className="bg-white border-2 border-gray-300 shadow-md">
-            <div className="bg-gradient-to-r from-purple-600 to-purple-700 text-white px-4 py-2">
-              <h3 className="text-sm font-bold uppercase">Complex Plane Analysis</h3>
-            </div>
-            <div className="p-3">
-              <div className="flex items-center justify-between mb-3">
+                <input
+                  type="text"
+                  placeholder="Age"
+                  value={patientData.demographics.age}
+                  onChange={(e) => updateDemographics('age', e.target.value)}
+                  className="w-full p-2 border rounded text-sm"
+                />
                 <select
-                  value={selectedGraphDomains}
-                  onChange={(e) => setSelectedGraphDomains(e.target.value)}
-                  className="text-xs border-2 border-gray-300 px-2 py-1 rounded font-medium"
+                  value={patientData.demographics.sex}
+                  onChange={(e) => updateDemographics('sex', e.target.value)}
+                  className="w-full p-2 border rounded text-sm"
                 >
-                  <option value="all">ALL DOMAINS</option>
-                  <option value="chiefComplaint">Chief Complaint</option>
-                  <option value="symptoms">Symptoms</option>
-                  <option value="vitals">Vitals</option>
-                  <option value="laboratory">Laboratory</option>
-                  <option value="examFindings">Exam Findings</option>
-                  <option value="imaging">Imaging</option>
-                  <option value="procedures">Procedures</option>
-                  <option value="pathology">Pathology</option>
-                  <option value="medications">Medications</option>
-                  <option value="allergyHistory">Allergies</option>
+                  <option>Male</option>
+                  <option>Female</option>
+                  <option>Other</option>
                 </select>
+              </div>
+            </div>
+
+            {/* Subjective Data */}
+            <div className="bg-white shadow rounded-lg p-4">
+              <h2 className="text-lg font-bold mb-3">Subjective Data</h2>
+              <EpicAutocompleteField
+  label="Chief Complaint"
+  dataFile="chief_complaint"
+  value={patientData.subjective.chiefComplaint}
+  onChange={(value) => updateSubjective('chiefComplaint', value)}
+  placeholder="Select chief complaint..."
+  multiple={false}
+  color="#e74c3c"
+/>
+
+              <EpicAutocompleteField
+                label="Symptoms"
+                dataFile="symptoms"
+                value={patientData.subjective.symptoms}
+                onChange={(value) => updateSubjective('symptoms', value)}
+                placeholder="Search symptoms..."
+                multiple={true}
+                color="#e74c3c"
+              />
+
+              <EpicAutocompleteField
+                label="Current Medications"
+                dataFile="medications"
+                value={patientData.subjective.medications}
+                onChange={(value) => updateSubjective('medications', value)}
+                placeholder="Search medications..."
+                multiple={true}
+                color="#f39c12"
+              />
+
+              <EpicAutocompleteField
+                label="Allergies"
+                dataFile="allergies"
+                value={patientData.subjective.allergyHistory}
+                onChange={(value) => updateSubjective('allergyHistory', value)}
+                placeholder="Search allergies..."
+                multiple={true}
+                color="#e74c3c"
+              />
+
+              <EpicAutocompleteField
+                label="Past Medical History"
+                dataFile="past_medical_history"
+                value={patientData.subjective.pastMedicalHistory}
+                onChange={(value) => updateSubjective('pastMedicalHistory', value)}
+                placeholder="Search conditions..."
+                multiple={true}
+                color="#9b59b6"
+              />
+
+              <EpicAutocompleteField
+                label="Past Surgical History"
+                dataFile="past_surgical_history"
+                value={patientData.subjective.pastSurgicalHistory}
+                onChange={(value) => updateSubjective('pastSurgicalHistory', value)}
+                placeholder="Search procedures..."
+                multiple={true}
+                color="#34495e"
+              />
+            </div>
+
+            {/* Objective Data */}
+            <div className="bg-white shadow rounded-lg p-4">
+              <h2 className="text-lg font-bold mb-3">Objective Data</h2>
+
+              {/* Vitals */}
+              <div className="mb-4">
+                <h3 className="text-sm font-semibold mb-2">Vital Signs</h3>
+                <div className="grid grid-cols-2 gap-2">
+                  <input
+                    type="text"
+                    placeholder="Temperature (°F)"
+                    value={patientData.objective.vitals.temperature}
+                    onChange={(e) => updateVitals('temperature', e.target.value)}
+                    className="p-2 border rounded text-sm"
+                  />
+                  <input
+                    type="text"
+                    placeholder="Heart Rate"
+                    value={patientData.objective.vitals.heartRate}
+                    onChange={(e) => updateVitals('heartRate', e.target.value)}
+                    className="p-2 border rounded text-sm"
+                  />
+                  <input
+                    type="text"
+                    placeholder="Blood Pressure"
+                    value={patientData.objective.vitals.bloodPressure}
+                    onChange={(e) => updateVitals('bloodPressure', e.target.value)}
+                    className="p-2 border rounded text-sm"
+                  />
+                  <input
+                    type="text"
+                    placeholder="Respiratory Rate"
+                    value={patientData.objective.vitals.respiratoryRate}
+                    onChange={(e) => updateVitals('respiratoryRate', e.target.value)}
+                    className="p-2 border rounded text-sm"
+                  />
+                  <input
+                    type="text"
+                    placeholder="O2 Saturation (%)"
+                    value={patientData.objective.vitals.o2Saturation}
+                    onChange={(e) => updateVitals('o2Saturation', e.target.value)}
+                    className="p-2 border rounded text-sm col-span-2"
+                  />
+                </div>
+              </div>
+
+              <EpicLabField
+                label="Laboratory Tests"
+                dataFile="laboratory_tests"
+                value={patientData.objective.laboratory}
+                onChange={updateLaboratory}
+                placeholder="Search lab tests..."
+                color="#70AD47"
+              />
+
+              <EpicImagingField
+                label="Imaging Studies"
+                dataFile="imaging_studies"
+                value={patientData.objective.imaging}
+                onChange={updateImaging}
+                placeholder="Search imaging..."
+                color="#FECA57"
+              />
+            </div>
+
+            {/* Suspected Diagnoses */}
+            <div className="bg-white shadow rounded-lg p-4">
+              <h2 className="text-lg font-bold mb-3">Suspected Diagnoses</h2>
+              <EpicAutocompleteField
+                label="Add Diagnoses"
+                dataFile="diagnoses"
+                value={suspectedDiagnoses}
+                onChange={setSuspectedDiagnoses}
+                placeholder="Search diagnoses..."
+                multiple={true}
+                color="#9b59b6"
+              />
+            </div>
+
+            {/* Submit Button */}
+            <button
+              onClick={submitToN8n}
+              disabled={isProcessing || n8nStatus === 'offline'}
+              className={`w-full py-3 rounded font-bold flex items-center justify-center gap-2 ${
+                isProcessing
+                  ? 'bg-gray-400 text-gray-600 cursor-not-allowed'
+                  : n8nStatus === 'offline'
+                  ? 'bg-yellow-500 text-white hover:bg-yellow-600'
+                  : 'bg-green-500 text-white hover:bg-green-600'
+              }`}
+            >
+              {isProcessing ? (
+                <>
+                  <Loader2 className="animate-spin" size={16} />
+                  Processing...
+                </>
+              ) : n8nStatus === 'offline' ? (
+                <>
+                  <Send size={16} />
+                  Analyze Locally (Offline Mode)
+                </>
+              ) : (
+                <>
+                  <Send size={16} />
+                  Analyze with AI
+                </>
+              )}
+            </button>
+
+            {error && (
+              <div className="bg-red-50 border border-red-200 text-red-700 p-3 rounded text-sm">
+                {error}
+              </div>
+            )}
+          </div>
+
+          {/* Visualizations */}
+          <div className="lg:col-span-2 space-y-4">
+            {/* Complex Plane Visualization */}
+            <div className="bg-white shadow rounded-lg p-4">
+              <div className="flex justify-between items-center mb-3">
+                <h2 className="text-lg font-bold flex items-center gap-2">
+                  <GitBranch size={18} />
+                  Complex Plane Analysis
+                </h2>
                 <div className="flex gap-2">
-                  <button
-                    onClick={() => setShowConnectedLines(!showConnectedLines)}
-                    className={`px-3 py-1 text-xs font-bold rounded ${
-                      showConnectedLines 
-                        ? 'bg-blue-600 text-white' 
-                        : 'bg-gray-200 text-gray-700'
-                    }`}
+                  <label className="flex items-center gap-1 text-xs">
+                    <input
+                      type="checkbox"
+                      checked={showConnections}
+                      onChange={(e) => setShowConnections(e.target.checked)}
+                    />
+                    Connections
+                  </label>
+                  <label className="flex items-center gap-1 text-xs">
+                    <input
+                      type="checkbox"
+                      checked={showLabels}
+                      onChange={(e) => setShowLabels(e.target.checked)}
+                    />
+                    Labels
+                  </label>
+                  <select
+                    value={selectedDomains}
+                    onChange={(e) => setSelectedDomains(e.target.value)}
+                    className="text-xs border rounded px-2 py-1"
                   >
-                    HULL
-                  </button>
-                  <button
-                    onClick={() => setShowDataLabels(!showDataLabels)}
-                    className={`px-3 py-1 text-xs font-bold rounded ${
-                      showDataLabels 
-                        ? 'bg-blue-600 text-white' 
-                        : 'bg-gray-200 text-gray-700'
-                    }`}
-                  >
-                    LABELS
-                  </button>
+                    <option value="all">All Domains</option>
+                    <option value="symptoms">Symptoms</option>
+                    <option value="vitals">Vitals</option>
+                    <option value="labs">Labs</option>
+                    <option value="medications">Medications</option>
+                  </select>
                 </div>
               </div>
               <ComplexPlaneChart
                 data={processedData}
-                showConnections={showConnectedLines}
-                showLabels={showDataLabels}
-                selectedDomains={selectedGraphDomains}
+                showConnections={showConnections}
+                showLabels={showLabels}
+                selectedDomains={selectedDomains}
               />
-              
-              {/* Complex Data Summary Table */}
-              <div className="mt-4 border-2 border-gray-300">
-                <div className="bg-gradient-to-r from-gray-600 to-gray-700 text-white px-3 py-2">
-                  <h4 className="text-xs font-bold uppercase">Complex Data Summary</h4>
-                </div>
-                <div className="max-h-48 overflow-y-auto">
-                  <table className="w-full text-xs">
-                    <thead className="bg-gray-100 sticky top-0">
-                      <tr>
-                        <th className="px-2 py-1 text-left border-r">Domain</th>
-                        <th className="px-2 py-1 text-left border-r">Item</th>
-                        <th className="px-2 py-1 text-center border-r">Angle°</th>
-                        <th className="px-2 py-1 text-center border-r">Real</th>
-                        <th className="px-2 py-1 text-center border-r">Imag</th>
-                        <th className="px-2 py-1 text-center">Complex</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {summaryTableData.map((item, index) => (
-                        <tr key={index} className="border-t hover:bg-gray-50">
-                          <td className="px-2 py-1 border-r">
-                            <div className="flex items-center gap-1">
-                              <div 
-                                className="w-2 h-2 rounded-full" 
-                                style={{ backgroundColor: item.color }}
-                              />
-                              <span className="truncate">{item.domain}</span>
-                            </div>
-                          </td>
-                          <td className="px-2 py-1 border-r truncate" title={item.name}>
-                            {item.name}
-                          </td>
-                          <td className="px-2 py-1 text-center border-r">
-                            {item.angle.toFixed(1)}
-                          </td>
-                          <td className="px-2 py-1 text-center border-r">
-                            {item.real.toFixed(3)}
-                          </td>
-                          <td className="px-2 py-1 text-center border-r">
-                            {item.imaginary.toFixed(3)}
-                          </td>
-                          <td className="px-2 py-1 text-center font-mono text-xs">
-                            {item.real.toFixed(2)}{item.imaginary >= 0 ? '+' : ''}{item.imaginary.toFixed(2)}i
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-                <div className="bg-gray-100 px-3 py-2 text-xs font-semibold">
-                  Total Data Points: {summaryTableData.length}
-                </div>
-              </div>
             </div>
+
+            {/* Analysis Grid */}
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+              {/* Kuramoto Analysis */}
+              <KuramotoAnalysis data={processedData} />
+
+              {/* Bayesian Analysis */}
+              <BayesianAnalysis
+                patientData={patientData}
+                processedData={processedData}
+                suspectedDiagnoses={suspectedDiagnoses}
+              />
+            </div>
+
+            {/* n8n Results */}
+            {n8nResults && (
+              <N8nResultsDisplay results={n8nResults} />
+            )}
           </div>
         </div>
       </div>
@@ -1468,4 +2635,4 @@ const DiagnoVeraEpicInterface = () => {
   );
 };
 
-export default DiagnoVeraEpicInterface;
+export default DiagnoVeraEnterpriseInterface;

@@ -1,0 +1,299 @@
+{
+  "name": "Medical Diagnosis AI Agent with Critical Findings",
+  "nodes": [
+    {
+      "parameters": {
+        "path": "medical-diagnosis",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "webhook-trigger",
+      "name": "Webhook Trigger",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 1,
+      "position": [250, 300]
+    },
+    {
+      "parameters": {
+        "functionCode": "// Extract and validate patient data\nconst patientData = $input.first().json;\n\n// Validate required fields\nconst requiredFields = ['subjective', 'vitals'];\nfor (const field of requiredFields) {\n  if (!patientData[field]) {\n    throw new Error(`Missing required field: ${field}`);\n  }\n}\n\n// Format data for NLP processing\nconst nlpData = {\n  encounter_id: patientData.encounter_id || `ENC-${Date.now()}`,\n  timestamp: new Date().toISOString(),\n  subjective: {\n    chief_complaint: patientData.subjective.chief_complaint || '',\n    hpi: patientData.subjective.hpi || '',\n    pmh: patientData.subjective.pmh || '',\n    medications: patientData.subjective.medications || '',\n    allergies: patientData.subjective.allergies || ''\n  },\n  examination: patientData.examination || '',\n  laboratory: patientData.laboratory || '',\n  imaging: patientData.imaging || '',\n  procedures: patientData.procedures || ''\n};\n\nreturn nlpData;"
+      },
+      "id": "data-validator",
+      "name": "Validate & Format Data",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [450, 300]
+    },
+    {
+      "parameters": {
+        "url": "={{ $env.NLP_SERVICE_URL }}/extract",
+        "method": "POST",
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "text_data",
+              "value": "={{ JSON.stringify($json) }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "nlp-extractor",
+      "name": "NLP Entity Extraction",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [650, 300]
+    },
+    {
+      "parameters": {
+        "functionCode": "// Process NLP results and identify critical findings\nconst nlpResults = $input.first().json;\nconst patientData = $node[\"Validate & Format Data\"].json;\n\n// Critical value thresholds\nconst criticalThresholds = {\n  vitals: {\n    heart_rate: { min: 50, max: 120, critical_min: 40, critical_max: 150 },\n    bp_systolic: { min: 90, max: 140, critical_min: 80, critical_max: 180 },\n    bp_diastolic: { min: 60, max: 90, critical_min: 50, critical_max: 110 },\n    oxygen_saturation: { min: 95, critical: 90 },\n    temperature: { min: 36, max: 38, critical_min: 35, critical_max: 39.5 }\n  },\n  labs: {\n    troponin: { normal_max: 0.04, critical: 0.1 },\n    d_dimer: { normal_max: 0.5, critical: 2.0 },\n    lactate: { normal_max: 2.0, critical: 4.0 },\n    ph: { min: 7.35, max: 7.45, critical_min: 7.2, critical_max: 7.6 }\n  }\n};\n\n// Extract critical findings\nconst criticalFindings = [];\n\n// Check vitals\nconst vitals = $node[\"Webhook Trigger\"].json.vitals;\nfor (const [param, value] of Object.entries(vitals)) {\n  const threshold = criticalThresholds.vitals[param];\n  if (threshold) {\n    if (threshold.critical && value < threshold.critical) {\n      criticalFindings.push({\n        type: 'vital',\n        parameter: param,\n        value: value,\n        severity: 'critical',\n        message: `${param} critically low: ${value}`\n      });\n    } else if (threshold.critical_min && value < threshold.critical_min) {\n      criticalFindings.push({\n        type: 'vital',\n        parameter: param,\n        value: value,\n        severity: 'critical',\n        message: `${param} critically low: ${value}`\n      });\n    } else if (threshold.critical_max && value > threshold.critical_max) {\n      criticalFindings.push({\n        type: 'vital',\n        parameter: param,\n        value: value,\n        severity: 'critical',\n        message: `${param} critically high: ${value}`\n      });\n    }\n  }\n}\n\n// Check for critical symptoms from NLP\nconst criticalSymptoms = [\n  'chest pain', 'severe headache', 'difficulty breathing',\n  'altered mental status', 'severe bleeding', 'stroke symptoms'\n];\n\nconst extractedSymptoms = nlpResults.symptoms || [];\nfor (const symptom of extractedSymptoms) {\n  if (criticalSymptoms.some(critical => symptom.toLowerCase().includes(critical))) {\n    criticalFindings.push({\n      type: 'symptom',\n      finding: symptom,\n      severity: 'critical',\n      message: `Critical symptom detected: ${symptom}`\n    });\n  }\n}\n\nreturn {\n  nlpResults,\n  criticalFindings,\n  hasCriticalFindings: criticalFindings.length > 0\n};"
+      },
+      "id": "critical-findings",
+      "name": "Identify Critical Findings",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [850, 300]
+    },
+    {
+      "parameters": {
+        "model": "gpt-4",
+        "messages": {
+          "values": [
+            {
+              "role": "system",
+              "content": "You are an expert medical diagnostician. Based on the patient data provided, generate a differential diagnosis with ICD-10 codes. Focus on:\n1. Primary diagnosis (most likely)\n2. Differential diagnoses (ranked by probability)\n3. Critical findings that require immediate attention\n4. Recommended further tests or actions\n\nProvide your response in JSON format with the following structure:\n{\n  \"primary_diagnosis\": {\n    \"icd10_code\": \"XXX.XX\",\n    \"description\": \"...\",\n    \"probability\": 0.XX,\n    \"reasoning\": \"...\"\n  },\n  \"differential_diagnoses\": [\n    {\n      \"icd10_code\": \"XXX.XX\",\n      \"description\": \"...\",\n      \"probability\": 0.XX,\n      \"reasoning\": \"...\"\n    }\n  ],\n  \"critical_alerts\": [],\n  \"recommended_actions\": []\n}"
+            },
+            {
+              "role": "user",
+              "content": "Patient Data:\n{{ JSON.stringify($json) }}\n\nCritical Findings Detected:\n{{ JSON.stringify($json.criticalFindings) }}\n\nPlease provide a comprehensive differential diagnosis with ICD-10 codes."
+            }
+          ]
+        },
+        "options": {
+          "temperature": 0.3,
+          "responseFormat": {
+            "type": "json_object"
+          }
+        }
+      },
+      "id": "openai-diagnosis",
+      "name": "AI Diagnosis Generator",
+      "type": "@n8n/n8n-nodes-langchain.openAi",
+      "typeVersion": 1,
+      "position": [1050, 300]
+    },
+    {
+      "parameters": {
+        "functionCode": "// Parse AI response and structure final output\nconst aiResponse = JSON.parse($input.first().json.output);\nconst nlpData = $node[\"Identify Critical Findings\"].json;\nconst originalData = $node[\"Webhook Trigger\"].json;\n\n// Combine all diagnoses with criticality scoring\nconst diagnoses = [aiResponse.primary_diagnosis];\nif (aiResponse.differential_diagnoses) {\n  diagnoses.push(...aiResponse.differential_diagnoses);\n}\n\n// Calculate criticality score\nconst criticalityScore = nlpData.criticalFindings.length * 0.2 + \n  (nlpData.hasCriticalFindings ? 0.5 : 0);\n\n// Structure final response\nconst response = {\n  encounter_id: originalData.encounter_id || `ENC-${Date.now()}`,\n  timestamp: new Date().toISOString(),\n  patient_summary: {\n    age: originalData.subjective?.age,\n    sex: originalData.subjective?.sex,\n    chief_complaint: originalData.subjective?.chief_complaint\n  },\n  diagnoses: diagnoses.map((d, index) => ({\n    rank: index + 1,\n    icd10_code: d.icd10_code,\n    description: d.description,\n    probability: d.probability,\n    reasoning: d.reasoning,\n    is_primary: index === 0\n  })),\n  critical_findings: {\n    count: nlpData.criticalFindings.length,\n    criticality_score: Math.min(criticalityScore, 1),\n    findings: nlpData.criticalFindings,\n    immediate_actions: aiResponse.critical_alerts || []\n  },\n  nlp_extracted_entities: {\n    symptoms: nlpData.nlpResults.symptoms || [],\n    medications: nlpData.nlpResults.medications || [],\n    conditions: nlpData.nlpResults.conditions || []\n  },\n  recommended_actions: aiResponse.recommended_actions || [],\n  metadata: {\n    processing_time_ms: Date.now() - new Date(originalData.timestamp).getTime(),\n    ai_model: \"gpt-4\",\n    nlp_service: \"medical-nlp\"\n  }\n};\n\nreturn response;"
+      },
+      "id": "response-formatter",
+      "name": "Format Final Response",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1250, 300]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "boolean": [
+            {
+              "value1": "={{ $json.critical_findings.criticality_score }}",
+              "operation": "greaterThan",
+              "value2": 0.7
+            }
+          ]
+        }
+      },
+      "id": "critical-check",
+      "name": "Check Criticality",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 1,
+      "position": [1450, 300]
+    },
+    {
+      "parameters": {
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpBasicAuth",
+        "url": "={{ $env.ALERT_SYSTEM_URL }}/critical",
+        "method": "POST",
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "encounter_id",
+              "value": "={{ $json.encounter_id }}"
+            },
+            {
+              "name": "critical_findings",
+              "value": "={{ JSON.stringify($json.critical_findings) }}"
+            },
+            {
+              "name": "primary_diagnosis",
+              "value": "={{ JSON.stringify($json.diagnoses[0]) }}"
+            }
+          ]
+        }
+      },
+      "id": "send-alert",
+      "name": "Send Critical Alert",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [1650, 200]
+    },
+    {
+      "parameters": {
+        "operation": "create",
+        "collection": "diagnoses",
+        "fields": {
+          "values": [
+            {
+              "name": "encounter_id",
+              "value": "={{ $json.encounter_id }}"
+            },
+            {
+              "name": "timestamp",
+              "value": "={{ $json.timestamp }}"
+            },
+            {
+              "name": "diagnoses",
+              "value": "={{ JSON.stringify($json.diagnoses) }}"
+            },
+            {
+              "name": "critical_findings",
+              "value": "={{ JSON.stringify($json.critical_findings) }}"
+            },
+            {
+              "name": "nlp_entities",
+              "value": "={{ JSON.stringify($json.nlp_extracted_entities) }}"
+            }
+          ]
+        }
+      },
+      "id": "store-diagnosis",
+      "name": "Store in Firestore",
+      "type": "n8n-nodes-firebase.firestore",
+      "typeVersion": 1,
+      "position": [1650, 400]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ JSON.stringify($json) }}",
+        "options": {}
+      },
+      "id": "webhook-response",
+      "name": "Send Response",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [1850, 300]
+    }
+  ],
+  "connections": {
+    "Webhook Trigger": {
+      "main": [
+        [
+          {
+            "node": "Validate & Format Data",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Validate & Format Data": {
+      "main": [
+        [
+          {
+            "node": "NLP Entity Extraction",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "NLP Entity Extraction": {
+      "main": [
+        [
+          {
+            "node": "Identify Critical Findings",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Identify Critical Findings": {
+      "main": [
+        [
+          {
+            "node": "AI Diagnosis Generator",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "AI Diagnosis Generator": {
+      "main": [
+        [
+          {
+            "node": "Format Final Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Format Final Response": {
+      "main": [
+        [
+          {
+            "node": "Check Criticality",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Check Criticality": {
+      "main": [
+        [
+          {
+            "node": "Send Critical Alert",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Store in Firestore",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Send Critical Alert": {
+      "main": [
+        [
+          {
+            "node": "Store in Firestore",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Store in Firestore": {
+      "main": [
+        [
+          {
+            "node": "Send Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  }
+}

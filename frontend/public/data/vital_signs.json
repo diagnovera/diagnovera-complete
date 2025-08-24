@@ -1,0 +1,6 @@
+{
+  "items": [
+    "Temperature", "Heart Rate", "Blood Pressure", 
+    "Respiratory Rate", "Oxygen Saturation", "Pain Score"
+  ]
+}
