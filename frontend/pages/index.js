@@ -7,8 +7,8 @@ import axios from 'axios'
 
 // Dynamically import the HomePage component
 const HomePage = dynamic(
-  () => import('../components/HomePage').catch(err => {
-    console.error('Failed to load HomePage:', err);
+  () => import('../components/homepage').catch(err => {
+    console.error('Failed to load homepage:', err);
     // If HomePage doesn't exist, return a simple login UI
     return () => (
       <div className="min-h-screen bg-gray-100 flex items-center justify-center p-4">
