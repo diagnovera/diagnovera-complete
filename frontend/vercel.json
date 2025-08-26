@@ -1,0 +1,10 @@
+{
+  "functions": {
+    "pages/api/*.js": {
+      "maxDuration": 10
+    }
+  },
+  "env": {
+    "NODE_OPTIONS": "--max-old-space-size=4096"
+  }
+}

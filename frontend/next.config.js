@@ -1,15 +1,12 @@
 ﻿/** @type {import('next').NextConfig} */
 const nextConfig = {
-  reactStrictMode: false,
+  reactStrictMode: true,
   swcMinify: true,
-  env: {
-    NEXT_PUBLIC_REACT_APP_BACKEND_URL: process.env.REACT_APP_BACKEND_URL || 'http://localhost:5000',
+  typescript: {
+    ignoreBuildErrors: true,
   },
   eslint: {
     ignoreDuringBuilds: true,
-  },
-  typescript: {
-    ignoreBuildErrors: true,
   },
 }
 

@@ -1,0 +1,215 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+share/python-wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+
+# Virtual Environments
+venv/
+env/
+ENV/
+env.bak/
+venv.bak/
+.venv/
+
+# FastAPI / Flask
+instance/
+.webassets-cache
+
+# Django (if using)
+*.log
+local_settings.py
+db.sqlite3
+db.sqlite3-journal
+media/
+staticfiles/
+
+# Node.js (if using)
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.pnpm-debug.log*
+
+# Environment files - CRITICAL
+.env
+.env.*
+.env.local
+.env.development
+.env.test
+.env.production
+.env.development.local
+.env.test.local
+.env.production.local
+config.py
+secrets.py
+secrets.json
+credentials.json
+
+# Google Cloud
+.gcloud/
+.firebase/
+*.serviceaccount.json
+*-key.json
+gcp-key.json
+service-account-key.json
+keyfile.json
+
+# Database
+*.db
+*.sqlite
+*.sqlite3
+data/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.project
+.classpath
+.c9/
+*.launch
+.settings/
+*.sublime-workspace
+
+# OS files
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# Testing
+.coverage
+.coverage.*
+.cache
+.pytest_cache/
+nosetests.xml
+coverage.xml
+*.cover
+*.py,cover
+.hypothesis/
+htmlcov/
+.tox/
+.nox/
+
+# Jupyter Notebook
+.ipynb_checkpoints
+*.ipynb
+
+# pyenv
+.python-version
+
+# pipenv
+Pipfile.lock
+
+# poetry
+poetry.lock
+
+# Celery
+celerybeat-schedule
+celerybeat.pid
+
+# SageMath
+*.sage.py
+
+# Scrapy
+.scrapy
+
+# Sphinx documentation
+docs/_build/
+target/
+
+# PyBuilder
+.pybuilder/
+
+# IPython
+profile_default/
+ipython_config.py
+
+# Temporary files
+*.tmp
+*.temp
+*.bak
+*.swp
+*~.nib
+tmp/
+temp/
+
+# Logs
+logs/
+*.log
+pip-log.txt
+pip-delete-this-directory.txt
+
+# Unit test / coverage
+.coverage
+.tox/
+.nox/
+.cache
+pytest_cache/
+test-results/
+
+# Certificates and keys
+*.pem
+*.key
+*.crt
+*.p12
+*.pfx
+*.jks
+ssl/
+certs/
+
+# Docker
+.dockerignore
+docker-compose.override.yml
+
+# Backups
+*.backup
+*.bak
+backup/
+
+# ML/AI specific (if applicable)
+models/
+*.h5
+*.pkl
+*.model
+*.weights
+checkpoints/
+
+# Data files (be selective)
+*.csv
+*.xlsx
+*.xls
+data/
+datasets/
+raw_data/
+
+# But keep some important files
+!requirements.txt
+!Dockerfile
+!.dockerignore
+!README.md
+!.gitkeep

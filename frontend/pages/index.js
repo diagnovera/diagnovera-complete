@@ -1,8 +1,34 @@
 import dynamic from 'next/dynamic'
 import React, { useEffect, useState } from 'react'
 import Head from 'next/head'
+import { useRouter } from 'next/router'
+import Script from 'next/script'
+import axios from 'axios'
 
-// Dynamically import with error boundary
+// Dynamically import the HomePage component
+const HomePage = dynamic(
+  () => import('../components/HomePage').catch(err => {
+    console.error('Failed to load HomePage:', err);
+    // If HomePage doesn't exist, return a simple login UI
+    return () => (
+      <div className="min-h-screen bg-gray-100 flex items-center justify-center p-4">
+        <div className="bg-white rounded-lg shadow-lg p-6 max-w-md w-full">
+          <h1 className="text-2xl font-bold mb-4">DiagnoVera</h1>
+          <p className="text-gray-600 mb-6">Clinical Decision Support System</p>
+          <button 
+            onClick={() => window.location.href = '/dashboard'}
+            className="w-full px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700"
+          >
+            Continue to Dashboard
+          </button>
+        </div>
+      </div>
+    );
+  }),
+  { ssr: false }
+)
+
+// Dynamically import DiagnoVera interface
 const DiagnoVeraEnterpriseInterface = dynamic(
   () => import('../components/DiagnoVeraEnterpriseInterface').catch(err => {
     console.error('Failed to load component:', err);
@@ -110,7 +136,10 @@ class ErrorBoundary extends React.Component {
 }
 
 export default function Home() {
+  const router = useRouter()
   const [mounted, setMounted] = useState(false)
+  const [isAuthenticated, setIsAuthenticated] = useState(false)
+  const [showHomePage, setShowHomePage] = useState(true)
   const [envCheck, setEnvCheck] = useState({
     backendUrl: null,
     n8nUrl: null
@@ -118,6 +147,13 @@ export default function Home() {
 
   useEffect(() => {
     console.log('Home page mounted');
+    
+    // Check authentication status
+    const authToken = localStorage.getItem('authToken');
+    if (authToken) {
+      setIsAuthenticated(true);
+      setShowHomePage(false);
+    }
     
     // Check environment variables
     const backendUrl = process.env.NEXT_PUBLIC_BACKEND_URL || process.env.REACT_APP_BACKEND_URL;
@@ -141,6 +177,32 @@ export default function Home() {
     setMounted(true);
   }, [])
 
+  // Handle authentication callback
+  useEffect(() => {
+    const urlParams = new URLSearchParams(window.location.search);
+    const status = urlParams.get('status');
+    
+    if (status === 'authenticated') {
+      setIsAuthenticated(true);
+      setShowHomePage(false);
+      // Clean up URL
+      window.history.replaceState({}, document.title, '/');
+    }
+  }, []);
+
+  const handleAuthSuccess = (token) => {
+    localStorage.setItem('authToken', token);
+    setIsAuthenticated(true);
+    setShowHomePage(false);
+  }
+
+  const handleLogout = () => {
+    localStorage.removeItem('authToken');
+    document.cookie = 'authToken=; expires=Thu, 01 Jan 1970 00:00:00 UTC; path=/;';
+    setIsAuthenticated(false);
+    setShowHomePage(true);
+  }
+
   if (!mounted) {
     return (
       <div className="min-h-screen bg-gray-100 flex items-center justify-center">
@@ -152,6 +214,22 @@ export default function Home() {
     )
   }
 
+  // Show HomePage with authentication if not authenticated
+  if (showHomePage && !isAuthenticated) {
+    return (
+      <>
+        <Head>
+          <title>DiagnoVera Inc. - DVera™ Renal AI</title>
+          <meta name="description" content="Enterprise-grade Renal Subspecialty AI – dialysis analytics, CKD management, interoperability, security." />
+          <meta name="viewport" content="width=device-width, initial-scale=1" />
+          <link rel="icon" href="/favicon.ico" />
+        </Head>
+        <HomePage onAuthSuccess={handleAuthSuccess} />
+      </>
+    );
+  }
+
+  // Show DiagnoVera interface if authenticated
   return (
     <>
       <Head>
@@ -162,6 +240,34 @@ export default function Home() {
       </Head>
       
       <ErrorBoundary>
+        {/* Logout button */}
+        <div style={{
+          position: 'fixed',
+          top: 0,
+          right: 0,
+          padding: '10px 20px',
+          background: '#fff',
+          borderBottom: '1px solid #e5e7eb',
+          borderLeft: '1px solid #e5e7eb',
+          borderRadius: '0 0 0 12px',
+          zIndex: 1000
+        }}>
+          <button
+            onClick={handleLogout}
+            style={{
+              background: '#ef4444',
+              color: 'white',
+              border: 'none',
+              padding: '8px 16px',
+              borderRadius: '6px',
+              cursor: 'pointer',
+              fontWeight: 'bold'
+            }}
+          >
+            Logout
+          </button>
+        </div>
+        
         <DiagnoVeraEnterpriseInterface />
         
         {/* Development Environment Info */}
@@ -170,6 +276,7 @@ export default function Home() {
             <div className="font-semibold mb-1">Dev Environment</div>
             <div>Backend: {envCheck.backendUrl}</div>
             <div>n8n: {envCheck.n8nUrl}</div>
+            <div>Auth: {isAuthenticated ? 'Authenticated' : 'Not authenticated'}</div>
           </div>
         )}
       </ErrorBoundary>

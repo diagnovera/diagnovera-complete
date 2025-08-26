@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
-import { ChevronDown, X, Loader2, Download, RotateCcw, Brain, BarChart3, GitBranch, Type, Send, Wifi, WifiOff } from 'lucide-react';
+import { ChevronDown, X, Loader2, Download, RotateCcw, BarChart3, GitBranch, Type, Send, Wifi, WifiOff } from 'lucide-react';
 
 // Configuration
 const config = {
@@ -152,43 +152,50 @@ class WebSocketService {
 
 const websocketService = new WebSocketService();
 
-// n8n Service
+// Replace the n8nService object in your DiagnoVeraEnterpriseInterface.js (around line 184)
+
 const n8nService = {
   async sendToN8n(patientData, processedData) {
     try {
+      // Build the payload that matches what your n8n workflow expects
       const payload = {
+        // Primary patient identifiers
         patient_id: patientData.demographics.mrn || 'unknown',
         timestamp: new Date().toISOString(),
-        text: `${patientData.subjective.chiefComplaint}. Patient reports: ${patientData.subjective.symptoms.join(', ')}`,
+
+        // Demographics
         demographics: {
-          age: patientData.demographics.age,
-          sex: patientData.demographics.sex
+          mrn: patientData.demographics.mrn || 'unknown',
+          age: patientData.demographics.age || '',
+          sex: patientData.demographics.sex || 'Unknown'
         },
-        symptoms: patientData.subjective.symptoms,
-        chief_complaint: patientData.subjective.chiefComplaint,
-        vitals: patientData.objective.vitals,
-        laboratory: patientData.objective.laboratory,
-        imaging: patientData.objective.imaging,
-        medications: patientData.subjective.medications,
-        allergies: patientData.subjective.allergyHistory,
-        medical_history: patientData.subjective.pastMedicalHistory,
-        nlp_results: {
-          entities: [
-            ...patientData.subjective.symptoms.map(symptom => ({
-              type: 'symptom',
-              value: symptom,
-              confidence: 0.85
-            })),
-            ...patientData.subjective.medications.map(med => ({
-              type: 'medication',
-              value: med,
-              confidence: 0.90
-            }))
-          ],
-          confidence: {
-            overall: 0.82
-          }
+
+        // Clinical presentation
+        chief_complaint: patientData.subjective.chiefComplaint || '',
+        symptoms: patientData.subjective.symptoms || [],
+
+        // Combined text for NLP processing
+        text: `${patientData.subjective.chiefComplaint}. Patient reports: ${patientData.subjective.symptoms.join(', ')}`,
+
+        // History
+        medical_history: patientData.subjective.pastMedicalHistory || [],
+        medications: patientData.subjective.medications || [],
+        allergies: patientData.subjective.allergyHistory || [],
+
+        // Vitals - ensure they're in the format n8n expects
+        vitals: {
+          temperature: patientData.objective.vitals.temperature || '',
+          heart_rate: patientData.objective.vitals.heartRate || '',
+          blood_pressure: patientData.objective.vitals.bloodPressure || '',
+          respiratory_rate: patientData.objective.vitals.respiratoryRate || '',
+          oxygen_saturation: patientData.objective.vitals.o2Saturation || ''
         },
+
+        // Diagnostic data
+        laboratory: patientData.objective.laboratory || [],
+        imaging: patientData.objective.imaging || [],
+
+        // Complex analysis data
         complex_analysis: {
           total_data_points: Object.values(processedData).flat().length,
           domains: Object.keys(processedData),
@@ -203,6 +210,7 @@ const n8nService = {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
+          'Accept': 'application/json'
         },
         body: JSON.stringify(payload)
       });
@@ -214,6 +222,27 @@ const n8nService = {
       const responseText = await response.text();
       console.log('Response text:', responseText);
 
+      // Check if response is ok
+      if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}, message: ${responseText}`);
+      }
+
+      // Handle empty response
+      if (!responseText || responseText.trim() === '') {
+        console.warn('n8n returned empty response - workflow may be misconfigured');
+        return {
+          success: true,
+          status: 'completed',
+          message: 'Workflow executed but returned no data',
+          patient_id: payload.patient_id,
+          timestamp: new Date().toISOString(),
+          diagnoses: ['Analysis pending - check n8n workflow'],
+          recommendations: ['Verify n8n webhook response configuration'],
+          confidence: 0,
+          urgency_level: 'ROUTINE'
+        };
+      }
+
       // Try to parse as JSON
       let data;
       try {
@@ -222,26 +251,92 @@ const n8nService = {
         console.error('Failed to parse response as JSON:', parseError);
         console.log('Raw response:', responseText);
 
-        // Check if it's the "Workflow was started" message
+        // Check for common n8n response messages
         if (responseText.includes('Workflow was started')) {
-          throw new Error('n8n workflow is not configured to return results. Check webhook settings.');
+          throw new Error('n8n workflow started but not configured to return results. Update "Respond to Webhook" node.');
         }
 
-        // Return a default response if parsing fails
-        data = {
+        // Return error response
+        return {
           error: true,
-          message: 'Invalid response from n8n',
+          message: 'Invalid JSON response from n8n',
           raw_response: responseText,
           patient_id: payload.patient_id
         };
       }
 
       console.log('n8n response - Parsed data:', data);
-      return data;
+
+      // Validate and normalize the response
+      const normalizedResponse = {
+        success: data.success !== false,
+        status: data.status || 'completed',
+        patient_id: data.patient_id || payload.patient_id,
+        encounter_id: data.encounter_id || `ENC-${Date.now()}`,
+        timestamp: data.timestamp || new Date().toISOString(),
+
+        // Handle different possible field names for diagnoses
+        diagnoses: data.diagnoses || data.diagnosis_list || data.differential_diagnoses || [],
+
+        // Recommendations
+        recommendations: data.recommendations || data.clinical_recommendations || [],
+
+        // Labs
+        labs_to_order: data.labs_to_order || data.suggested_labs || data.laboratory_tests || [],
+
+        // Confidence and urgency
+        confidence: data.confidence !== undefined ? data.confidence : 0.5,
+        urgency_level: data.urgency_level || data.priority || 'ROUTINE',
+
+        // Summary and findings
+        summary: data.summary || data.clinical_summary || 'Analysis complete',
+        critical_findings: data.critical_findings || {},
+        diagnostic_report: data.diagnostic_report || {},
+
+        // Include patient data echo for verification
+        patient_data: data.patient_data || {
+          chief_complaint: payload.chief_complaint,
+          symptoms: payload.symptoms,
+          vitals: payload.vitals
+        },
+
+        // Debug info
+        debug: {
+          workflow_response: data.debug_info || null,
+          original_response_keys: Object.keys(data)
+        }
+      };
+
+      // Check if we got meaningful results
+      if (normalizedResponse.diagnoses.length === 0 &&
+          normalizedResponse.recommendations.length === 0 &&
+          !normalizedResponse.summary) {
+        console.warn('n8n returned empty analysis results');
+        normalizedResponse.message = 'Analysis completed but no specific findings generated';
+      }
+
+      return normalizedResponse;
 
     } catch (error) {
       console.error('Error sending to n8n:', error);
-      throw error;
+
+      // Return a structured error response
+      return {
+        error: true,
+        success: false,
+        message: error.message,
+        patient_id: patientData.demographics.mrn || 'unknown',
+        timestamp: new Date().toISOString(),
+        diagnoses: [],
+        recommendations: ['Unable to complete analysis - ' + error.message],
+        confidence: 0,
+        urgency_level: 'ERROR',
+        debug: {
+          error_type: error.name,
+          error_message: error.message,
+          webhook_url: config.N8N_WEBHOOK_URL
+        }
+      };
     }
   }
 };
@@ -1046,12 +1141,13 @@ const ComplexPlaneChart = React.memo(({ data, showConnections, showLabels, selec
   );
 });
 
-// Kuramoto Analysis
-const KuramotoAnalysis = ({ data }) => {
+// Replace your entire KuramotoAnalysis component with this:
+
+const KuramotoAnalysis = ({ data, n8nResults }) => {
   const svgRef = useRef(null);
   const animationRef = useRef(null);
   const [orderParameter, setOrderParameter] = useState(0);
-  const [coupling, setCoupling] = useState(0.8);
+  const [coupling, setCoupling] = useState(0.5);
   const [isRunning, setIsRunning] = useState(false);
   const [oscillators, setOscillators] = useState([]);
   const [d3Module, setD3Module] = useState(null);
@@ -1062,6 +1158,40 @@ const KuramotoAnalysis = ({ data }) => {
     });
   }, []);
 
+  // Calculate coupling based on AI results
+  useEffect(() => {
+    if (!n8nResults) return;
+
+    // Adjust coupling based on urgency and confidence
+    let newCoupling = 0.5; // Default
+
+    if (n8nResults.urgency_level === 'EMERGENT') {
+      newCoupling = 0.2; // Low coupling - system in crisis
+    } else if (n8nResults.urgency_level === 'URGENT') {
+      newCoupling = 0.4; // Reduced coupling
+    } else if (n8nResults.urgency_level === 'SEMI-URGENT') {
+      newCoupling = 0.6; // Moderate coupling
+    } else {
+      newCoupling = 0.8; // Good coupling for routine cases
+    }
+
+    // Adjust based on confidence (higher confidence = more accurate coupling assessment)
+    const confidenceFactor = n8nResults.confidence || 0.5;
+    newCoupling = newCoupling * (0.7 + (confidenceFactor * 0.3)); // Scale by 70-100% based on confidence
+
+    // Check for critical findings
+    if (n8nResults.critical_findings?.red_flags?.length > 0) {
+      newCoupling *= 0.8; // Reduce coupling by 20% for critical findings
+    }
+
+    // Check for abnormal findings
+    if (n8nResults.abnormal_findings?.length > 2) {
+      newCoupling *= 0.9; // Reduce coupling by 10% for multiple abnormalities
+    }
+
+    setCoupling(Math.max(0.1, Math.min(1.5, newCoupling))); // Keep within reasonable bounds
+  }, [n8nResults]);
+
   const hasData = data && Object.keys(data).length > 0 && Object.values(data).flat().length > 0;
 
   useEffect(() => {
@@ -1071,17 +1201,38 @@ const KuramotoAnalysis = ({ data }) => {
     Object.entries(data).forEach(([domain, points]) => {
       if (Array.isArray(points)) {
         points.forEach(point => {
+          // Adjust phase based on abnormal findings
+          let phaseAdjustment = 0;
+          let naturalFreqAdjustment = 0;
+
+          // Check if this data point is mentioned in abnormal findings
+          if (n8nResults?.abnormal_findings?.some(finding =>
+            finding.toLowerCase().includes(point.name.toLowerCase())
+          )) {
+            phaseAdjustment = Math.PI / 4; // Shift phase for abnormal findings
+            naturalFreqAdjustment = 0.2; // Increase frequency variation
+          }
+
+          // Check for critical symptoms
+          if (domain === 'symptoms' && n8nResults?.critical_findings?.critical_symptoms?.some(
+            symptom => symptom.symptom.toLowerCase().includes(point.name.toLowerCase())
+          )) {
+            phaseAdjustment += Math.PI / 6; // Additional phase shift for critical symptoms
+            naturalFreqAdjustment += 0.3;
+          }
+
           newOscillators.push({
             ...point,
-            phase: (point.angle * Math.PI / 180),
-            naturalFreq: 0.1 + (point.magnitude * 0.9),
-            domain: domain
+            phase: (point.angle * Math.PI / 180) + phaseAdjustment,
+            naturalFreq: 0.1 + (point.magnitude * 0.9) + naturalFreqAdjustment,
+            domain: domain,
+            isAbnormal: phaseAdjustment > 0
           });
         });
       }
     });
     setOscillators(newOscillators);
-  }, [data, hasData]);
+  }, [data, hasData, n8nResults]);
 
   useEffect(() => {
     if (!svgRef.current || oscillators.length === 0 || !d3Module) return;
@@ -1166,8 +1317,8 @@ const KuramotoAnalysis = ({ data }) => {
           .attr("class", "oscillator")
           .attr("cx", x)
           .attr("cy", y)
-          .attr("r", 6)
-          .attr("fill", osc.color || "#4a90e2")
+          .attr("r", osc.isAbnormal ? 8 : 6)
+          .attr("fill", osc.isAbnormal ? "#e74c3c" : (osc.color || "#4a90e2"))
           .attr("stroke", "white")
           .attr("stroke-width", 2)
           .attr("opacity", 0.8);
@@ -1225,8 +1376,8 @@ const KuramotoAnalysis = ({ data }) => {
           .attr("class", "oscillator")
           .attr("cx", x)
           .attr("cy", y)
-          .attr("r", 6)
-          .attr("fill", osc.color || "#4a90e2")
+          .attr("r", osc.isAbnormal ? 8 : 6)
+          .attr("fill", osc.isAbnormal ? "#e74c3c" : (osc.color || "#4a90e2"))
           .attr("stroke", "white")
           .attr("stroke-width", 2);
       });
@@ -1239,9 +1390,67 @@ const KuramotoAnalysis = ({ data }) => {
     };
   }, [oscillators, coupling, isRunning, d3Module]);
 
-  // Clinical interpretation
+  // AI-aware clinical interpretation
   const getClinicalInterpretation = () => {
-    if (coupling < 0.3) {
+    const actualCoupling = coupling;
+
+    // If we have AI results, provide more specific interpretation
+    if (n8nResults) {
+      if (actualCoupling < 0.3) {
+        return {
+          state: "Critical Desynchronization",
+          color: "#e74c3c",
+          interpretation: "Severe physiological disruption detected. Multiple systems showing independent dysfunction.",
+          clinicalSignificance: `Findings consistent with ${n8nResults.urgency_level} presentation. ${n8nResults.summary || "Critical state requiring immediate intervention."}`,
+          actionableInsights: n8nResults.recommendations?.slice(0, 4).map(r => `• ${r}`) || [
+            "• Immediate medical attention required",
+            "• Consider ICU admission",
+            "• Multi-system support indicated",
+            "• Serial monitoring essential"
+          ]
+        };
+      } else if (actualCoupling < 0.5) {
+        return {
+          state: "Moderate Desynchronization",
+          color: "#f39c12",
+          interpretation: "Significant physiological stress. Systems showing partial coordination loss.",
+          clinicalSignificance: `Consistent with: ${n8nResults.diagnoses?.[0] || "Acute illness"}. ${n8nResults.abnormal_findings?.length > 0 ? `Notable: ${n8nResults.abnormal_findings[0]}` : ""}`,
+          actionableInsights: n8nResults.recommendations?.slice(0, 3).map(r => `• ${r}`) || [
+            "• Close monitoring required",
+            "• Initiate treatment protocol",
+            "• Serial assessments recommended"
+          ]
+        };
+      } else if (actualCoupling < 0.7) {
+        return {
+          state: "Mild Disruption",
+          color: "#3498db",
+          interpretation: "Minor physiological perturbation. Most systems maintaining coordination.",
+          clinicalSignificance: `Presentation consistent with: ${n8nResults.diagnoses?.[0] || "condition"}. ${n8nResults.confidence > 0.7 ? "High diagnostic confidence." : "Moderate diagnostic confidence."}`,
+          actionableInsights: n8nResults.recommendations?.slice(0, 3).map(r => `• ${r}`) || [
+            "• Outpatient management appropriate",
+            "• Symptomatic treatment",
+            "• Follow-up as needed"
+          ]
+        };
+      } else {
+        return {
+          state: "Normal Synchronization",
+          color: "#27ae60",
+          interpretation: "Physiological systems well-coordinated. No significant disruption detected.",
+          clinicalSignificance: `Findings consistent with ${n8nResults.urgency_level === 'ROUTINE' ? 'stable condition' : 'mild presentation'}. ${n8nResults.diagnoses?.[0] || "No acute pathology identified."}`,
+          actionableInsights: [
+            "• Continue current management",
+            "• Routine follow-up appropriate",
+            "• Focus on preventive care",
+            "• Document baseline parameters"
+          ]
+        };
+      }
+    }
+
+    // Fallback to original interpretation if no AI results
+    if (actualCoupling < 0.3) {
       return {
         state: "Decoupled State",
         color: "#e74c3c",
@@ -1254,7 +1463,7 @@ const KuramotoAnalysis = ({ data }) => {
           "• Consider ICU-level monitoring"
         ]
       };
-    } else if (coupling < 0.7) {
+    } else if (actualCoupling < 0.7) {
       return {
         state: "Partial Synchronization",
         color: "#f39c12",
@@ -1267,7 +1476,7 @@ const KuramotoAnalysis = ({ data }) => {
           "• Consider serial assessments"
         ]
       };
-    } else if (coupling < 1.2) {
+    } else if (actualCoupling < 1.2) {
       return {
         state: "Healthy Synchronization",
         color: "#27ae60",
@@ -1324,7 +1533,11 @@ const KuramotoAnalysis = ({ data }) => {
         </div>
         <div className="flex items-center justify-between">
           <span className="text-xs font-medium">Total Oscillators: {oscillators.length}</span>
-          <span className="text-xs text-gray-500">From patient data</span>
+          <span className="text-xs text-gray-500">
+            {oscillators.filter(o => o.isAbnormal).length > 0 &&
+              `(${oscillators.filter(o => o.isAbnormal).length} abnormal)`
+            }
+          </span>
         </div>
         <div className="flex items-center gap-2">
           <label className="text-xs font-medium">Coupling Strength:</label>
@@ -1336,9 +1549,15 @@ const KuramotoAnalysis = ({ data }) => {
             value={coupling}
             onChange={(e) => setCoupling(parseFloat(e.target.value))}
             className="flex-1"
+            disabled={n8nResults ? true : false} // Disable manual adjustment when AI results are present
           />
           <span className="text-xs w-8">{coupling.toFixed(1)}</span>
         </div>
+        {n8nResults && (
+          <div className="text-xs text-gray-600 italic">
+            *Coupling auto-adjusted based on AI diagnosis
+          </div>
+        )}
         <button
           onClick={() => setIsRunning(!isRunning)}
           className={`w-full py-2 text-xs font-bold rounded ${
@@ -1382,16 +1601,16 @@ const KuramotoAnalysis = ({ data }) => {
 
         <div className="mt-3 p-2 bg-gray-100 rounded text-xs">
           <span className="font-semibold">Clinical Note:</span> The coupling constant (K) represents the strength of interaction between physiological systems.
-          This analysis shows how synchronized the patient's various clinical parameters are, which can indicate overall system stability and coordination.
+          {n8nResults && " This value has been automatically adjusted based on the AI diagnosis and urgency level."}
         </div>
       </div>
     </div>
   );
 };
 
-// Bayesian Analysis Component
-const BayesianAnalysis = ({ patientData, processedData, suspectedDiagnoses = [] }) => {
-  const [localDiseaseDatabase, setLocalDiseaseDatabase] = useState(diseaseDatabase);
+// Replace your entire BayesianAnalysis component with this:
+
+const BayesianAnalysis = ({ patientData, processedData, n8nResults }) => {
   const svgRef = useRef(null);
   const [d3Module, setD3Module] = useState(null);
 
@@ -1401,176 +1620,84 @@ const BayesianAnalysis = ({ patientData, processedData, suspectedDiagnoses = [] 
     });
   }, []);
 
-  const hasData = patientData && processedData && Object.values(processedData).flat().length > 0;
-
-  useEffect(() => {
-    if (!hasData) return;
-
-    const newDiseases = {};
-
-    suspectedDiagnoses.forEach(diagnosis => {
-      if (!localDiseaseDatabase[diagnosis]) {
-        newDiseases[diagnosis] = {
-          symptoms: patientData.subjective.symptoms.slice(0, 5),
-          labs: {},
-          vitals: {},
-          prior: 0.03,
-          isUserAdded: true
-        };
-
-        patientData.objective.laboratory.forEach(lab => {
-          if (lab.value) {
-            newDiseases[diagnosis].labs[lab.name] = {
-              value: parseFloat(lab.value),
-              indicator: 'check'
-            };
-          }
-        });
-      }
-    });
-
-    const symptomString = patientData.subjective.symptoms.join(' ');
-    const similarDiseases = findSimilarDiseases(symptomString);
-
-    if (Array.isArray(similarDiseases)) {
-      similarDiseases.slice(0, 3).forEach(({ disease, similarity }) => {
-        if (disease && !localDiseaseDatabase[disease] && similarity > 0.3) {
-          if (diseaseDatabase[disease]) {
-            newDiseases[disease] = {
-              ...diseaseDatabase[disease],
-              isSimilarityBased: true,
-              similarity: similarity
-            };
-          }
-        }
-      });
-    }
-
-    if (Object.keys(newDiseases).length > 0) {
-      setLocalDiseaseDatabase(prev => ({ ...prev, ...newDiseases }));
-    }
-  }, [suspectedDiagnoses, patientData, hasData]);
-
-  const calculateLikelihood = useCallback((disease, diseaseInfo, data) => {
-    let likelihood = 1.0;
-    let matchCount = 0;
-    let totalChecks = 0;
-
-    if (diseaseInfo.isUserAdded && suspectedDiagnoses.includes(disease)) {
-      likelihood *= 2.0;
-    }
-
-    if (data.subjective.chiefComplaint) {
-      const complaint = data.subjective.chiefComplaint.toLowerCase();
-      if (Array.isArray(diseaseInfo.symptoms)) {
-        diseaseInfo.symptoms.forEach(symptom => {
-          totalChecks++;
-          if (complaint.includes(symptom)) {
-            likelihood *= 2.5;
-            matchCount++;
-          }
-        });
-      }
-    }
-
-    const symptoms = data.subjective.symptoms || [];
-    if (Array.isArray(symptoms)) {
-      symptoms.forEach(patientSymptom => {
-        const symptomLower = patientSymptom.toLowerCase();
-        if (Array.isArray(diseaseInfo.symptoms)) {
-          diseaseInfo.symptoms.forEach(diseaseSymptom => {
-            totalChecks++;
-            if (symptomLower.includes(diseaseSymptom) || diseaseSymptom.includes(symptomLower)) {
-              likelihood *= 1.8;
-              matchCount++;
-            }
-          });
-        }
-      });
-    }
-
-    const vitals = data.objective.vitals || {};
-    Object.entries(diseaseInfo.vitals || {}).forEach(([vital, criteria]) => {
-      totalChecks++;
-      const value = parseFloat(vitals[vital]);
-      if (!isNaN(value)) {
-        let matches = false;
-        if (criteria.min && value >= criteria.min) matches = true;
-        if (criteria.max && value <= criteria.max) matches = true;
-        if (matches) {
-          likelihood *= 2.0;
-          matchCount++;
-        }
-      }
-    });
-
-    const labs = data.objective.laboratory || [];
-    labs.forEach(lab => {
-      if (lab.name && lab.value && diseaseInfo.labs && diseaseInfo.labs[lab.name]) {
-        totalChecks++;
-        const criteria = diseaseInfo.labs[lab.name];
-        const value = parseFloat(lab.value);
-        if (!isNaN(value)) {
-          let matches = false;
-          if (criteria.min && value >= criteria.min) matches = true;
-          if (criteria.max && value <= criteria.max) matches = true;
-          if (criteria.indicator === 'abnormal' && (value < criteria.min || value > criteria.max)) matches = true;
-          if (matches) {
-            likelihood *= 3.0;
-            matchCount++;
-          }
-        }
-      }
-    });
-
-    const matchRatio = totalChecks > 0 ? matchCount / totalChecks : 0;
-    likelihood *= (1 + matchRatio);
-
-    return Math.min(likelihood, 10);
-  }, [suspectedDiagnoses]);
+  // Use AI diagnoses if available
+  const hasData = n8nResults && n8nResults.diagnoses && n8nResults.diagnoses.length > 0;
 
   const posteriorProbabilities = useMemo(() => {
     if (!hasData) return [];
 
-    const likelihoods = {};
-    let totalEvidence = 0;
+    // Extract diagnoses from n8n results
+    const aiDiagnoses = n8nResults.diagnoses || [];
+    const confidence = n8nResults.confidence || 0.5;
 
-    Object.entries(localDiseaseDatabase).forEach(([disease, diseaseInfo]) => {
-      const likelihood = calculateLikelihood(disease, diseaseInfo, patientData);
-      likelihoods[disease] = likelihood;
-      totalEvidence += diseaseInfo.prior * likelihood;
+    // Convert AI diagnoses to probability format
+    const probabilities = aiDiagnoses.map((diagnosis, index) => {
+      // Extract disease name and ICD code
+      const match = diagnosis.match(/^(.+?)\s*\(ICD10:\s*(.+?)\)$/);
+      const diseaseName = match ? match[1] : diagnosis;
+      const icdCode = match ? match[2] : '';
+
+      // Calculate probability distribution
+      // Primary diagnosis gets highest probability
+      let baseProbability;
+      if (index === 0) {
+        baseProbability = confidence * 0.5; // Primary gets 50% of confidence
+      } else if (index === 1) {
+        baseProbability = confidence * 0.25; // Secondary gets 25%
+      } else {
+        // Remaining diagnoses share the rest
+        baseProbability = confidence * (0.25 / (aiDiagnoses.length - 2));
+      }
+
+      return {
+        disease: diseaseName,
+        icdCode: icdCode,
+        probability: baseProbability,
+        likelihood: 1 + (confidence * 2), // Higher confidence = higher likelihood
+        prior: 0.1, // Assume uniform prior
+        isAIDiagnosis: true
+      };
     });
 
-    const posteriors = {};
-    Object.entries(localDiseaseDatabase).forEach(([disease, diseaseInfo]) => {
-      posteriors[disease] = totalEvidence > 0
-        ? (diseaseInfo.prior * likelihoods[disease]) / totalEvidence
-        : diseaseInfo.prior;
-    });
+    // Add differential diagnoses if provided in recommendations
+    if (n8nResults.recommendations) {
+      n8nResults.recommendations.forEach(rec => {
+        if (rec.toLowerCase().includes('rule out') || rec.toLowerCase().includes('consider')) {
+          const diseaseMatch = rec.match(/(?:rule out|consider)\s+(.+?)(?:\s|$)/i);
+          if (diseaseMatch && probabilities.length < 5) {
+            probabilities.push({
+              disease: diseaseMatch[1],
+              icdCode: '',
+              probability: confidence * 0.05,
+              likelihood: 0.5,
+              prior: 0.05,
+              isDifferential: true
+            });
+          }
+        }
+      });
+    }
 
-    const sorted = Object.entries(posteriors)
-      .sort((a, b) => b[1] - a[1])
-      .map(([disease, prob]) => ({
-        disease,
-        probability: prob,
-        likelihood: likelihoods[disease],
-        prior: localDiseaseDatabase[disease].prior,
-        isUserAdded: localDiseaseDatabase[disease].isUserAdded
+    // Normalize probabilities to sum to 1
+    const totalProb = probabilities.reduce((sum, p) => sum + p.probability, 0);
+    if (totalProb > 0) {
+      return probabilities.map(p => ({
+        ...p,
+        probability: p.probability / totalProb
       }));
+    }
 
-    const top5 = sorted.filter(d => !d.isUserAdded).slice(0, 5);
-    const significantUserAdded = sorted.filter(d => d.isUserAdded && d.probability > 0.01);
-
-    return [...top5, ...significantUserAdded];
-  }, [patientData, localDiseaseDatabase, suspectedDiagnoses, calculateLikelihood, hasData]);
+    return probabilities;
+  }, [n8nResults, hasData]);
 
   useEffect(() => {
-    if (!svgRef.current || posteriorProbabilities.length === 0 || !hasData || !d3Module) return;
+    if (!svgRef.current || posteriorProbabilities.length === 0 || !d3Module) return;
 
     const svg = d3Module.select(svgRef.current);
     svg.selectAll("*").remove();
 
-    const margin = { top: 40, right: 20, bottom: 120, left: 50 };
+    // Adjusted margins to prevent overflow
+    const margin = { top: 40, right: 40, bottom: 120, left: 60 };
     const width = 450 - margin.left - margin.right;
     const height = 350 - margin.top - margin.bottom;
 
@@ -1584,36 +1711,24 @@ const BayesianAnalysis = ({ patientData, processedData, suspectedDiagnoses = [] 
 
     const y = d3Module.scaleLinear()
       .range([height, 0])
-      .domain([0, Math.max(...posteriorProbabilities.map(d => d.probability))]);
+      .domain([0, Math.max(...posteriorProbabilities.map(d => d.probability)) * 1.1]);
 
-    const gradientCore = svg.append("defs")
+    // Color gradients for AI diagnoses
+    const gradientAI = svg.append("defs")
       .append("linearGradient")
-      .attr("id", "bar-gradient-core")
+      .attr("id", "bar-gradient-ai")
       .attr("x1", "0%").attr("y1", "0%")
       .attr("x2", "0%").attr("y2", "100%");
 
-    gradientCore.append("stop")
+    gradientAI.append("stop")
       .attr("offset", "0%")
-      .attr("stop-color", "#4a90e2");
+      .attr("stop-color", "#e74c3c");
 
-    gradientCore.append("stop")
+    gradientAI.append("stop")
       .attr("offset", "100%")
-      .attr("stop-color", "#357abd");
+      .attr("stop-color", "#c0392b");
 
-    const gradientUser = svg.append("defs")
-      .append("linearGradient")
-      .attr("id", "bar-gradient-user")
-      .attr("x1", "0%").attr("y1", "0%")
-      .attr("x2", "0%").attr("y2", "100%");
-
-    gradientUser.append("stop")
-      .attr("offset", "0%")
-      .attr("stop-color", "#9b59b6");
-
-    gradientUser.append("stop")
-      .attr("offset", "100%")
-      .attr("stop-color", "#8e44ad");
-
+    // Bars
     g.selectAll(".bar")
       .data(posteriorProbabilities)
       .enter().append("rect")
@@ -1622,12 +1737,18 @@ const BayesianAnalysis = ({ patientData, processedData, suspectedDiagnoses = [] 
       .attr("width", x.bandwidth())
       .attr("y", height)
       .attr("height", 0)
-      .attr("fill", d => d.isUserAdded ? "url(#bar-gradient-user)" : "url(#bar-gradient-core)")
+      .attr("fill", (d, i) => {
+        if (i === 0) return '#e74c3c'; // Primary - red
+        if (i === 1) return '#f39c12'; // Secondary - orange
+        if (d.isDifferential) return '#95a5a6'; // Differential - gray
+        return '#3498db'; // Others - blue
+      })
       .transition()
       .duration(750)
       .attr("y", d => y(d.probability))
       .attr("height", d => height - y(d.probability));
 
+    // Value labels on bars
     g.selectAll(".text")
       .data(posteriorProbabilities)
       .enter().append("text")
@@ -1638,15 +1759,16 @@ const BayesianAnalysis = ({ patientData, processedData, suspectedDiagnoses = [] 
       .attr("font-weight", "bold")
       .text(d => (d.probability * 100).toFixed(1) + '%');
 
-    g.selectAll(".likelihood")
-      .data(posteriorProbabilities)
+    // ICD codes below bars (if present)
+    g.selectAll(".icd")
+      .data(posteriorProbabilities.filter(d => d.icdCode))
       .enter().append("text")
       .attr("x", d => x(d.disease) + x.bandwidth() / 2)
-      .attr("y", d => y(d.probability) + 15)
+      .attr("y", height + 10)
       .attr("text-anchor", "middle")
       .attr("font-size", "8px")
       .attr("fill", "#666")
-      .text(d => `L: ${d.likelihood.toFixed(2)}`);
+      .text(d => d.icdCode);
 
     // X axis
     g.append("g")
@@ -1656,7 +1778,8 @@ const BayesianAnalysis = ({ patientData, processedData, suspectedDiagnoses = [] 
       .attr("transform", "rotate(-45)")
       .style("text-anchor", "end")
       .attr("dx", "-.8em")
-      .attr("dy", ".15em");
+      .attr("dy", ".15em")
+      .attr("font-size", "10px");
 
     // Y axis
     g.append("g")
@@ -1669,46 +1792,52 @@ const BayesianAnalysis = ({ patientData, processedData, suspectedDiagnoses = [] 
       .attr("text-anchor", "middle")
       .attr("font-size", "14px")
       .attr("font-weight", "bold")
-      .text("Bayesian Disease Probability Analysis");
+      .text("AI Diagnostic Probability Analysis");
+
+    // Confidence indicator
+    svg.append("text")
+      .attr("x", width + margin.left - 10)
+      .attr("y", height + margin.top + 40)
+      .attr("text-anchor", "end")
+      .attr("font-size", "11px")
+      .attr("fill", "#666")
+      .text(`AI Confidence: ${((n8nResults.confidence || 0) * 100).toFixed(0)}%`);
 
     // Legend
     const legend = svg.append("g")
-      .attr("transform", `translate(${width + margin.left - 100}, 40)`);
+      .attr("transform", `translate(${width + margin.left - 80}, 40)`);
 
-    legend.append("rect")
-      .attr("width", 15)
-      .attr("height", 15)
-      .attr("fill", "url(#bar-gradient-core)");
+    const legendData = [
+      { color: '#e74c3c', label: 'Primary' },
+      { color: '#f39c12', label: 'Secondary' },
+      { color: '#3498db', label: 'Other' }
+    ];
 
-    legend.append("text")
-      .attr("x", 20)
-      .attr("y", 12)
-      .attr("font-size", "10px")
-      .text("Core DB");
+    legendData.forEach((item, i) => {
+      legend.append("rect")
+        .attr("y", i * 20)
+        .attr("width", 15)
+        .attr("height", 15)
+        .attr("fill", item.color);
 
-    legend.append("rect")
-      .attr("y", 20)
-      .attr("width", 15)
-      .attr("height", 15)
-      .attr("fill", "url(#bar-gradient-user)");
+      legend.append("text")
+        .attr("x", 20)
+        .attr("y", i * 20 + 12)
+        .attr("font-size", "10px")
+        .text(item.label);
+    });
 
-    legend.append("text")
-      .attr("x", 20)
-      .attr("y", 32)
-      .attr("font-size", "10px")
-      .text("Suspected");
-
-  }, [posteriorProbabilities, hasData, d3Module]);
+  }, [posteriorProbabilities, d3Module, n8nResults]);
 
   if (!hasData || !d3Module) {
     return (
       <div className="bg-white border-2 border-gray-300 p-4">
-        <h3 className="text-sm font-bold mb-3">Bayesian Disease Analysis</h3>
+        <h3 className="text-sm font-bold mb-3">AI Diagnostic Probability Analysis</h3>
         <div className="h-64 flex items-center justify-center text-gray-500 text-sm">
           {!d3Module ? (
             <Loader2 className="h-8 w-8 animate-spin text-gray-400" />
           ) : (
-            "No patient data available. Enter clinical data to begin analysis."
+            "Waiting for AI diagnosis results..."
           )}
         </div>
       </div>
@@ -1717,23 +1846,35 @@ const BayesianAnalysis = ({ patientData, processedData, suspectedDiagnoses = [] 
 
   return (
     <div className="bg-white border-2 border-gray-300 p-4">
-      <h3 className="text-sm font-bold mb-3">Bayesian Disease Analysis</h3>
+      <h3 className="text-sm font-bold mb-3">AI Diagnostic Probability Analysis</h3>
       <svg ref={svgRef} width={450} height={350} />
       <div className="mt-4 space-y-2 text-xs">
-        <div className="font-semibold">Top Differential Diagnoses:</div>
-        {posteriorProbabilities.slice(0, 5).map((result, idx) => (
+        <div className="font-semibold">Diagnostic Breakdown:</div>
+        {posteriorProbabilities.map((result, idx) => (
           <div key={idx} className="flex justify-between items-center p-2 bg-gray-50 rounded">
-            <span className={`font-medium ${result.isUserAdded ? 'text-purple-600' : ''}`}>
+            <span className="font-medium">
               {idx + 1}. {result.disease}
+              {result.icdCode && <span className="text-gray-500 ml-1">(ICD10: {result.icdCode})</span>}
             </span>
             <div className="text-right">
               <span className="font-bold">{(result.probability * 100).toFixed(1)}%</span>
-              <span className="text-gray-500 ml-2">
-                (Prior: {(result.prior * 100).toFixed(1)}%)
-              </span>
+              {result.isDifferential && (
+                <span className="text-xs text-gray-500 ml-2">(Differential)</span>
+              )}
             </div>
           </div>
         ))}
+
+        {n8nResults.urgency_level && (
+          <div className={`mt-3 p-2 rounded text-center font-semibold ${
+            n8nResults.urgency_level === 'EMERGENT' ? 'bg-red-100 text-red-800' :
+            n8nResults.urgency_level === 'URGENT' ? 'bg-orange-100 text-orange-800' :
+            n8nResults.urgency_level === 'SEMI-URGENT' ? 'bg-yellow-100 text-yellow-800' :
+            'bg-green-100 text-green-800'
+          }`}>
+            Urgency: {n8nResults.urgency_level}
+          </div>
+        )}
       </div>
     </div>
   );
@@ -2134,79 +2275,19 @@ const submitToN8n = async () => {
       return;
     }
 
-    // Send to n8n webhook
-    const payload = {
-      // Patient identification
-      patient_id: patientData.demographics.mrn || `TEMP-${Date.now()}`,
-      timestamp: new Date().toISOString(),
+    console.log('Patient data before sending:', patientData);
+    console.log('Processed data:', processedData);
 
-      // Demographics
-      age: patientData.demographics.age || '',
-      gender: patientData.demographics.sex || 'Unknown',
-      demographics: {
-        mrn: patientData.demographics.mrn || `TEMP-${Date.now()}`,
-        age: patientData.demographics.age || '',
-        sex: patientData.demographics.sex || 'Unknown'
-      },
-
-      // Clinical data - ensure proper format
-      chief_complaint: patientData.subjective.chiefComplaint || '',
-      symptoms: patientData.subjective.symptoms || [],
-
-      // Additional clinical context
-      text: `${patientData.subjective.chiefComplaint || 'No chief complaint'}. Patient reports: ${(patientData.subjective.symptoms || []).join(', ') || 'No specific symptoms'}`,
-
-      // Vitals
-      vitals: patientData.objective.vitals || {},
-
-      // History and medications
-      medications: patientData.subjective.medications || [],
-      allergies: patientData.subjective.allergyHistory || [],
-      medical_history: patientData.subjective.pastMedicalHistory || [],
-
-      // Diagnostic data
-      laboratory: patientData.objective.laboratory || [],
-      imaging: patientData.objective.imaging || [],
-
-      // Complex analysis
-      complex_analysis: processedData || {},
-
-      // Include nested structure as well (in case n8n expects it)
-      subjective: {
-        chiefComplaint: patientData.subjective.chiefComplaint || '',
-        symptoms: patientData.subjective.symptoms || [],
-        medications: patientData.subjective.medications || [],
-        allergyHistory: patientData.subjective.allergyHistory || [],
-        pastMedicalHistory: patientData.subjective.pastMedicalHistory || [],
-        pastSurgicalHistory: patientData.subjective.pastSurgicalHistory || []
-      },
-      objective: {
-        vitals: patientData.objective.vitals || {},
-        laboratory: patientData.objective.laboratory || [],
-        imaging: patientData.objective.imaging || []
-      }
-    };
-
-    console.log('Sending to n8n:', payload);
-    console.log('Chief complaint:', payload.chief_complaint);
-    console.log('Symptoms count:', payload.symptoms.length);
-
-    const response = await fetch(config.N8N_WEBHOOK_URL, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify(payload)
-    });
-
-    if (!response.ok) {
-      throw new Error(`HTTP error! status: ${response.status}`);
-    }
-
-    const result = await response.json();
+    // USE THE N8N SERVICE HERE - THIS IS THE KEY CHANGE
+    const result = await n8nService.sendToN8n(patientData, processedData);
     console.log('n8n response:', result);
 
-    // Set the results immediately
+    // Handle error responses from the service
+    if (result.error) {
+      throw new Error(result.message || 'Error from n8n workflow');
+    }
+
+    // Set the results
     setN8nResults({
       diagnoses: result.diagnoses || result.diagnosis_list || [],
       recommendations: result.recommendations || [],
@@ -2309,43 +2390,97 @@ const submitToN8n = async () => {
     <div className="min-h-screen bg-gray-100 p-4">
       <div className="max-w-7xl mx-auto">
         {/* Header */}
-        <div className="bg-white shadow-md rounded-lg p-4 mb-4">
-          <div className="flex justify-between items-center">
-            <div className="flex items-center gap-2">
-              <Brain className="h-8 w-8 text-blue-600" />
-              <h1 className="text-2xl font-bold text-gray-800">DiagnoVera Enterprise</h1>
-              <span className="text-sm text-gray-500">Clinical Decision Support System</span>
-            </div>
-            <div className="flex items-center gap-4">
-              <div className="flex items-center gap-2">
-                {n8nStatus === 'connected' ? (
-                  <Wifi className="h-4 w-4 text-green-500" />
-                ) : n8nStatus === 'offline' ? (
-                  <WifiOff className="h-4 w-4 text-yellow-500" />
-                ) : (
-                  <WifiOff className="h-4 w-4 text-red-500" />
-                )}
-                <span className="text-xs text-gray-600">
-                  {n8nStatus === 'offline' ? 'Offline Mode' : `n8n: ${n8nStatus}`}
-                </span>
-              </div>
-              <button
-                onClick={resetForm}
-                className="flex items-center gap-2 px-3 py-1 bg-gray-500 text-white rounded hover:bg-gray-600"
-              >
-                <RotateCcw size={14} />
-                Reset
-              </button>
-              <button
-                onClick={exportData}
-                className="flex items-center gap-2 px-3 py-1 bg-blue-500 text-white rounded hover:bg-blue-600"
-              >
-                <Download size={14} />
-                Export
-              </button>
-            </div>
-          </div>
+<div className="bg-gradient-to-r from-slate-900 via-blue-900 to-slate-900 shadow-2xl rounded-lg p-4 mb-4 border-t-4 border-blue-500">
+  <div className="flex justify-between items-center">
+    <div className="flex items-center gap-4">
+      <div className="relative">
+        {/* Epic DVERA Logo Design */}
+        <div className="flex items-baseline gap-1">
+          <span className="text-4xl font-black text-white tracking-wider">
+            DVERA
+          </span>
+          <span className="text-xs text-blue-400 font-semibold align-super">
+            ™
+          </span>
         </div>
+        <div className="absolute -bottom-1 left-0 w-full h-1 bg-gradient-to-r from-blue-500 via-cyan-400 to-blue-500 rounded-full animate-pulse"></div>
+      </div>
+
+      <div className="flex flex-col">
+        <span className="text-xs text-blue-300 font-medium uppercase tracking-widest">
+          Clinical Decision Support System
+        </span>
+        <span className="text-xs text-gray-400">
+          AI-Powered Diagnostic Analysis
+        </span>
+      </div>
+    </div>
+
+    <div className="flex items-center gap-4">
+      <div className="flex items-center gap-2 bg-slate-800/50 px-3 py-1.5 rounded-lg border border-slate-700">
+        {n8nStatus === 'connected' ? (
+          <div className="flex items-center gap-2">
+            <div className="w-2 h-2 bg-green-500 rounded-full animate-pulse"></div>
+            <Wifi className="h-4 w-4 text-green-500" />
+          </div>
+        ) : n8nStatus === 'offline' ? (
+          <div className="flex items-center gap-2">
+            <div className="w-2 h-2 bg-yellow-500 rounded-full"></div>
+            <WifiOff className="h-4 w-4 text-yellow-500" />
+          </div>
+        ) : (
+          <div className="flex items-center gap-2">
+            <div className="w-2 h-2 bg-red-500 rounded-full"></div>
+            <WifiOff className="h-4 w-4 text-red-500" />
+          </div>
+        )}
+        <span className="text-xs text-gray-300 font-medium">
+          {n8nStatus === 'offline' ? 'Offline Mode' : `System: ${n8nStatus}`}
+        </span>
+      </div>
+
+      <button
+        onClick={resetForm}
+        className="flex items-center gap-2 px-4 py-2 bg-slate-800 hover:bg-slate-700 text-white rounded-lg transition-all duration-200 border border-slate-700 hover:border-slate-600 shadow-lg hover:shadow-xl"
+      >
+        <RotateCcw size={14} />
+        <span className="text-sm font-semibold">Reset</span>
+      </button>
+
+      <button
+        onClick={exportData}
+        className="flex items-center gap-2 px-4 py-2 bg-gradient-to-r from-blue-600 to-blue-700 hover:from-blue-700 hover:to-blue-800 text-white rounded-lg transition-all duration-200 shadow-lg hover:shadow-xl"
+      >
+        <Download size={14} />
+        <span className="text-sm font-semibold">Export</span>
+      </button>
+    </div>
+  </div>
+
+  {/* Epic status bar */}
+  <div className="mt-3 flex items-center justify-between">
+    <div className="flex gap-6">
+      <div className="flex items-center gap-2">
+        <div className="w-1 h-4 bg-blue-500 rounded-full"></div>
+        <span className="text-xs text-gray-400">Session ID: {Date.now().toString(36).toUpperCase()}</span>
+      </div>
+      <div className="flex items-center gap-2">
+        <div className="w-1 h-4 bg-cyan-500 rounded-full"></div>
+        <span className="text-xs text-gray-400">v2.0.1</span>
+      </div>
+    </div>
+    <div className="text-xs text-gray-500">
+      {new Date().toLocaleString('en-US', {
+        weekday: 'short',
+        year: 'numeric',
+        month: 'short',
+        day: 'numeric',
+        hour: '2-digit',
+        minute: '2-digit'
+      })}
+    </div>
+  </div>
+</div>
 
         {/* Main Content Grid */}
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
@@ -2611,18 +2746,19 @@ const submitToN8n = async () => {
               />
             </div>
 
-            {/* Analysis Grid */}
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-              {/* Kuramoto Analysis */}
-              <KuramotoAnalysis data={processedData} />
 
-              {/* Bayesian Analysis */}
-              <BayesianAnalysis
-                patientData={patientData}
-                processedData={processedData}
-                suspectedDiagnoses={suspectedDiagnoses}
-              />
-            </div>
+             {/* Analysis Grid */}
+             <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+             {/* Kuramoto Analysis */}
+             <KuramotoAnalysis data={processedData} n8nResults={n8nResults} />
+
+             {/* Bayesian Analysis */}
+             <BayesianAnalysis
+             patientData={patientData}
+             processedData={processedData}
+             n8nResults={n8nResults}  // Add this prop
+             />
+             </div>
 
             {/* n8n Results */}
             {n8nResults && (
