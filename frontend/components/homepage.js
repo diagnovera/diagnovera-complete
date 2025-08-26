@@ -12,26 +12,56 @@ export default function HomePage({ onAuthSuccess }) {
   const [authToken, setAuthToken] = useState('');
 
   useEffect(() => {
+    // Check URL params for authorization redirect
+    const urlParams = new URLSearchParams(window.location.search);
+    const authorized = urlParams.get('authorized');
+
+    if (authorized === 'true') {
+      // Get auth data from localStorage (set by authorize.js)
+      const token = localStorage.getItem('authToken');
+      const email = localStorage.getItem('userEmail');
+      const name = localStorage.getItem('userName');
+      const image = localStorage.getItem('userImage');
+
+      if (token) {
+        // Clear URL params
+        window.history.replaceState({}, document.title, window.location.pathname);
+
+        // Set cookie for server-side auth
+        document.cookie = `authToken=${token}; path=/; max-age=86400`;
+
+        if (onAuthSuccess) {
+          onAuthSuccess({ token, email, name, image });
+        } else {
+          router.push('/dashboard');
+        }
+      }
+    }
+
     // Initialize Google Sign-In
     if (window.google) {
-      window.google.accounts.id.initialize({
-        client_id: process.env.NEXT_PUBLIC_GOOGLE_CLIENT_ID,
-        callback: handleGoogleResponse
-      });
-      
-      window.google.accounts.id.renderButton(
-        document.getElementById("googleSignInButton"),
-        { 
-          theme: "outline", 
-          size: "large", 
-          width: "100%",
-          text: "signin_with",
-          shape: "rectangular",
-          logo_alignment: "center"
-        }
-      );
+      initializeGoogleSignIn();
     }
-  }, []);
+  }, [router, onAuthSuccess]);
+
+  const initializeGoogleSignIn = () => {
+    window.google.accounts.id.initialize({
+      client_id: process.env.NEXT_PUBLIC_GOOGLE_CLIENT_ID,
+      callback: handleGoogleResponse
+    });
+
+    window.google.accounts.id.renderButton(
+      document.getElementById("googleSignInButton"),
+      {
+        theme: "outline",
+        size: "large",
+        width: "100%",
+        text: "signin_with",
+        shape: "rectangular",
+        logo_alignment: "center"
+      }
+    );
+  };
 
   const handleGoogleResponse = async (response) => {
     try {
@@ -43,65 +73,70 @@ export default function HomePage({ onAuthSuccess }) {
         setAwaitingAuth(true);
         setAuthEmail(res.data.email);
         setAuthToken(res.data.token);
+        // Start checking for authorization
         pollAuthorization(res.data.token);
       }
     } catch (err) {
       setError(err.response?.data?.message || 'Authentication failed');
+      setAwaitingAuth(false);
     }
   };
 
   const pollAuthorization = async (token) => {
+    let attempts = 0;
+    const maxAttempts = 200; // 10 minutes with 3-second intervals
+
     const pollInterval = setInterval(async () => {
+      attempts++;
+
       try {
         const response = await axios.post('/api/auth/check-authorization', { token });
-        
+
         if (response.data.authorized) {
           clearInterval(pollInterval);
-          // Store auth token and notify parent
+          setAwaitingAuth(false);
+
+          // Store user data
           localStorage.setItem('authToken', token);
+          localStorage.setItem('userEmail', response.data.email);
+          localStorage.setItem('userName', response.data.name || '');
+          localStorage.setItem('userImage', response.data.image || '');
+
+          // Set cookie
           document.cookie = `authToken=${token}; path=/; max-age=86400`;
+
           if (onAuthSuccess) {
-            onAuthSuccess(token);
+            onAuthSuccess(response.data);
           } else {
             router.push('/dashboard');
           }
         }
+
+        // Stop after max attempts
+        if (attempts >= maxAttempts) {
+          clearInterval(pollInterval);
+          setAwaitingAuth(false);
+          setError('Authorization timeout. Please try again.');
+        }
       } catch (err) {
-        console.error('Poll error:', err);
+        // If token expired or not found, stop polling
+        if (err.response?.status === 404) {
+          clearInterval(pollInterval);
+          setAwaitingAuth(false);
+          setError('Authorization expired. Please try again.');
+        }
       }
     }, 3000); // Check every 3 seconds
-
-    // Stop polling after 10 minutes
-    setTimeout(() => {
-      clearInterval(pollInterval);
-      setAwaitingAuth(false);
-      setError('Authorization timeout. Please try again.');
-    }, 600000);
   };
 
   return (
     <>
-      <Script 
-        src="https://accounts.google.com/gsi/client" 
+      <Script
+        src="https://accounts.google.com/gsi/client"
         strategy="afterInteractive"
         onLoad={() => {
           if (window.google) {
-            window.google.accounts.id.initialize({
-              client_id: process.env.NEXT_PUBLIC_GOOGLE_CLIENT_ID,
-              callback: handleGoogleResponse
-            });
-            
-            window.google.accounts.id.renderButton(
-              document.getElementById("googleSignInButton"),
-              { 
-                theme: "outline", 
-                size: "large", 
-                width: "100%",
-                text: "signin_with",
-                shape: "rectangular",
-                logo_alignment: "center"
-              }
-            );
+            initializeGoogleSignIn();
           }
         }}
       />
@@ -170,6 +205,12 @@ export default function HomePage({ onAuthSuccess }) {
         .requirement{display:flex;align-items:center;gap:8px;padding:12px;background:#fef3c7;border:1px solid #fde68a;border-radius:8px;margin-bottom:16px}
         .requirement svg{width:20px;height:20px;color:#d97706}
         .requirement p{margin:0;font-size:.9rem;color:#92400e}
+        .wf{position:relative;height:220px;margin:24px 0}
+        .wf-rail{stroke:#e5e7eb;stroke-width:2;fill:none}
+        .wf-trace{stroke:url(#g);stroke-width:3;fill:none;stroke-dasharray:1000;stroke-dashoffset:1000;animation:trace 3s ease forwards}
+        @keyframes trace{to{stroke-dashoffset:0}}
+        .wf-step{position:absolute;transform:translate(-50%,-50%);text-align:center}
+        .wf-step .dot{width:16px;height:16px;background:var(--indigo);border-radius:50%;margin:0 auto 8px}
       `}</style>
 
       <header>
@@ -196,7 +237,7 @@ export default function HomePage({ onAuthSuccess }) {
       <section className="hero">
         <div className="container two">
           <div>
-            <h1>DVera™: <span className="grad">Renal Subspecialty AI</span> – Dialysis Analytics & CKD Management</h1>
+            <h1>DVera™: <span className="grad">Renal Subspecialty AI</span> — Dialysis Analytics & CKD Management</h1>
             <div className="tabs" role="tablist" aria-label="Focus areas">
               <button className="tab active" role="tab" onClick={(e) => {
                 document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
@@ -227,11 +268,11 @@ export default function HomePage({ onAuthSuccess }) {
               CKD progression analytics with eGFR trajectory modeling, albuminuria trend tracking, intervention timing, and high-risk patient stratification.
             </p>
           </div>
-          
+
           <div id="login">
             <div className="login">
               <h3 style={{margin:'0 0 8px'}}>DVera™ Suite Access</h3>
-              
+
               {awaitingAuth ? (
                 <div className="waiting">
                   <div className="spinner"></div>
@@ -252,7 +293,7 @@ export default function HomePage({ onAuthSuccess }) {
                     </svg>
                     <p>Gmail account required for access</p>
                   </div>
-                  
+
                   <div id="googleSignInButton" style={{marginTop: '10px'}}></div>
 
                   <div className="divider">or</div>
@@ -260,11 +301,11 @@ export default function HomePage({ onAuthSuccess }) {
                   <p style={{textAlign:'center',fontSize:'.85rem',color:'#6b7280',margin:0}}>
                     Enterprise SSO options available after initial authentication
                   </p>
-                  
+
                   {error && <div className="error">{error}</div>}
-                  
+
                   <p style={{fontSize:'.8rem',color:'#64748b',margin:'16px 0 0'}}>
-                    By continuing, you agree to role-based access controls and audit logging. 
+                    By continuing, you agree to role-based access controls and audit logging.
                     Access requires administrator approval.
                   </p>
                 </>
@@ -274,7 +315,7 @@ export default function HomePage({ onAuthSuccess }) {
         </div>
       </section>
 
-      {/* Rest of the sections remain the same */}
+      {/* Rest of the sections remain exactly the same... */}
       <section id="platform">
         <div className="container">
           <div className="badge" style={{color:'#4f46e5'}}>Platform</div>
@@ -444,7 +485,7 @@ export default function HomePage({ onAuthSuccess }) {
                   accord.classList.toggle('open');
                 }}>Executive Profile</button>
                 <div className="content">
-                  Nephrology physician and founder leading strategy, clinical safety, and model governance for DVera™ – aligning scientific rigor with operational scalability.
+                  Nephrology physician and founder leading strategy, clinical safety, and model governance for DVera™ — aligning scientific rigor with operational scalability.
                 </div>
               </div>
               <div className="accord" id="a2">
@@ -509,7 +550,7 @@ export default function HomePage({ onAuthSuccess }) {
             </div>
             <div className="card">
               <h3>Phone</h3>
-              <p><a href="tel:+18004383721" style={{color:'#4f46e5'}}>1-800-4-DVERA</a></p>
+              <p><a href="tel:+18004438721" style={{color:'#4f46e5'}}>1-800-4-DVERA</a></p>
             </div>
           </div>
         </div>

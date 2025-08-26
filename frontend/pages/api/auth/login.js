@@ -1,17 +1,13 @@
 // pages/api/auth/login.js
 import nodemailer from 'nodemailer';
 import jwt from 'jsonwebtoken';
-import bcrypt from 'bcryptjs';
-
-// Store pending authorizations (in production, use Redis or database)
-const pendingAuths = new Map();
 
 // Configure email transporter
 const transporter = nodemailer.createTransport({
   service: 'gmail',
   auth: {
-    user: process.env.EMAIL_USER, // Your email
-    pass: process.env.EMAIL_APP_PASSWORD // Gmail app password
+    user: process.env.EMAIL_USER,
+    pass: process.env.EMAIL_APP_PASSWORD
   }
 });
 
@@ -28,22 +24,20 @@ export default async function handler(req, res) {
       return res.status(400).json({ message: 'Email and password required' });
     }
 
-    // Generate authorization token
+    // Generate authorization token with user data
     const authToken = jwt.sign(
-      { email, timestamp: Date.now() },
+      {
+        email,
+        name: null, // No name for email/password login
+        image: null,
+        timestamp: Date.now()
+      },
       process.env.JWT_SECRET,
       { expiresIn: '10m' }
     );
 
-    // Store pending authorization
-    pendingAuths.set(authToken, {
-      email,
-      authorized: false,
-      timestamp: Date.now()
-    });
-
     // Create authorization link
-    const authLink = `${process.env.NEXT_PUBLIC_BASE_URL}/api/auth/authorize?token=${authToken}`;
+    const authLink = `${process.env.NEXTAUTH_URL}/api/auth/authorize?token=${authToken}`;
 
     // Send email notification
     const mailOptions = {
@@ -74,13 +68,6 @@ export default async function handler(req, res) {
 
     await transporter.sendMail(mailOptions);
 
-    // Clean up old pending auths (older than 10 minutes)
-    for (const [token, data] of pendingAuths.entries()) {
-      if (Date.now() - data.timestamp > 600000) {
-        pendingAuths.delete(token);
-      }
-    }
-
     res.status(200).json({
       success: true,
       token: authToken,
@@ -92,6 +79,3 @@ export default async function handler(req, res) {
     res.status(500).json({ message: 'Internal server error' });
   }
 }
-
-// Export for use in other endpoints
-export { pendingAuths };

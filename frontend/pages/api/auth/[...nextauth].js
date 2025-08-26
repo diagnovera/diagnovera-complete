@@ -3,7 +3,6 @@ import NextAuth from "next-auth";
 import GoogleProvider from "next-auth/providers/google";
 import nodemailer from 'nodemailer';
 import jwt from 'jsonwebtoken';
-import { pendingAuths } from '../../../lib/auth-store';
 
 // Email transporter
 const transporter = nodemailer.createTransport({
@@ -29,21 +28,17 @@ export const authOptions = {
       }
 
       try {
-        // Generate authorization token
+        // Generate authorization token with ALL user data
         const authToken = jwt.sign(
-          { email: user.email, timestamp: Date.now() },
+          {
+            email: user.email,
+            name: user.name,
+            image: user.image,
+            timestamp: Date.now()
+          },
           process.env.JWT_SECRET,
           { expiresIn: '10m' }
         );
-
-        // Store pending authorization
-        pendingAuths.set(authToken, {
-          email: user.email,
-          name: user.name,
-          image: user.image,
-          authorized: false,
-          timestamp: Date.now()
-        });
 
         // Create authorization link
         const authLink = `${process.env.NEXTAUTH_URL}/api/auth/authorize?token=${authToken}`;
@@ -75,10 +70,6 @@ export const authOptions = {
             </div>
           `
         });
-
-        // Store token in session for redirect
-        global.pendingAuthToken = authToken;
-        global.pendingAuthEmail = user.email;
 
         // Return false to prevent immediate sign in
         return false;

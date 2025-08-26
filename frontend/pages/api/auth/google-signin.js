@@ -1,8 +1,9 @@
-const client = new OAuth2Client(process.env.GOOGLE_CLIENT_ID);// pages/api/auth/google-signin.js
+// pages/api/auth/google-signin.js
 import { OAuth2Client } from 'google-auth-library';
 import nodemailer from 'nodemailer';
 import jwt from 'jsonwebtoken';
-import { pendingAuths } from '../../../lib/auth-store';
+
+const client = new OAuth2Client(process.env.GOOGLE_CLIENT_ID);
 
 // Email transporter
 const transporter = nodemailer.createTransport({
@@ -35,21 +36,17 @@ export default async function handler(req, res) {
       return res.status(403).json({ message: 'Only Gmail accounts are allowed' });
     }
 
-    // Generate authorization token
+    // Generate authorization token with ALL user data
     const authToken = jwt.sign(
-      { email, timestamp: Date.now() },
+      {
+        email,
+        name,
+        image: picture,
+        timestamp: Date.now()
+      },
       process.env.JWT_SECRET,
       { expiresIn: '10m' }
     );
-
-    // Store pending authorization
-    pendingAuths.set(authToken, {
-      email,
-      name,
-      image: picture,
-      authorized: false,
-      timestamp: Date.now()
-    });
 
     // Create authorization link
     const authLink = `${process.env.NEXTAUTH_URL}/api/auth/authorize?token=${authToken}`;
