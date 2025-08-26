@@ -63,6 +63,59 @@ export default function HomePage({ onAuthSuccess }) {
     );
   };
 
+  const pollAuthorization = async (token) => {
+    let attempts = 0;
+    const maxAttempts = 200; // 10 minutes with 3-second intervals
+
+    const pollInterval = setInterval(async () => {
+      attempts++;
+
+      try {
+        // Poll using email, not token
+        const response = await axios.post('/api/auth/check-authorization', {
+          email: authEmail // Use the email that was set when user tried to login
+        });
+
+        if (response.data.authorized) {
+          clearInterval(pollInterval);
+          setAwaitingAuth(false);
+
+          // Create a session token for the authorized user
+          const sessionToken = btoa(JSON.stringify({
+            email: response.data.email,
+            name: response.data.name,
+            image: response.data.image,
+            authorizedAt: new Date().toISOString()
+          }));
+
+          // Store session data
+          localStorage.setItem('authToken', sessionToken);
+          localStorage.setItem('userEmail', response.data.email);
+          localStorage.setItem('userName', response.data.name || '');
+          localStorage.setItem('userImage', response.data.image || '');
+
+          // Set cookie
+          document.cookie = `authToken=${sessionToken}; path=/; max-age=86400`;
+
+          if (onAuthSuccess) {
+            onAuthSuccess(response.data);
+          } else {
+            router.push('/dashboard');
+          }
+        }
+
+        // Stop after max attempts
+        if (attempts >= maxAttempts) {
+          clearInterval(pollInterval);
+          setAwaitingAuth(false);
+          setError('Authorization timeout. Please try again.');
+        }
+      } catch (err) {
+        console.error('Poll error:', err);
+      }
+    }, 3000); // Check every 3 seconds
+  };
+
   const handleGoogleResponse = async (response) => {
     try {
       const res = await axios.post('/api/auth/google-signin', {
@@ -73,59 +126,14 @@ export default function HomePage({ onAuthSuccess }) {
         setAwaitingAuth(true);
         setAuthEmail(res.data.email);
         setAuthToken(res.data.token);
-// In homepage.js, update the pollAuthorization function:
-const pollAuthorization = async (token) => {
-  let attempts = 0;
-  const maxAttempts = 200; // 10 minutes with 3-second intervals
-
-  const pollInterval = setInterval(async () => {
-    attempts++;
-
-    try {
-      // Poll using email, not token
-      const response = await axios.post('/api/auth/check-authorization', {
-        email: authEmail // Use the email that was set when user tried to login
-      });
-
-      if (response.data.authorized) {
-        clearInterval(pollInterval);
-        setAwaitingAuth(false);
-
-        // Create a session token for the authorized user
-        const sessionToken = btoa(JSON.stringify({
-          email: response.data.email,
-          name: response.data.name,
-          image: response.data.image,
-          authorizedAt: new Date().toISOString()
-        }));
-
-        // Store session data
-        localStorage.setItem('authToken', sessionToken);
-        localStorage.setItem('userEmail', response.data.email);
-        localStorage.setItem('userName', response.data.name || '');
-        localStorage.setItem('userImage', response.data.image || '');
-
-        // Set cookie
-        document.cookie = `authToken=${sessionToken}; path=/; max-age=86400`;
-
-        if (onAuthSuccess) {
-          onAuthSuccess(response.data);
-        } else {
-          router.push('/dashboard');
-        }
-      }
-
-      // Stop after max attempts
-      if (attempts >= maxAttempts) {
-        clearInterval(pollInterval);
-        setAwaitingAuth(false);
-        setError('Authorization timeout. Please try again.');
+        // Start polling for authorization
+        pollAuthorization(res.data.token);
       }
     } catch (err) {
-      console.error('Poll error:', err);
+      setError(err.response?.data?.message || 'Authentication failed');
+      setAwaitingAuth(false);
     }
-  }, 3000); // Check every 3 seconds
-};
+  };
 
   return (
     <>
