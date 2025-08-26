@@ -9,10 +9,8 @@ export default async function handler(req, res) {
   }
 
   try {
-    // Verify and decode token - the token contains all the user data
+    // Verify and decode token
     const decoded = jwt.verify(token, process.env.JWT_SECRET);
-
-    // Extract user data from the token
     const { email, name, image, timestamp } = decoded;
 
     // Check if token is expired (10 minutes)
@@ -21,37 +19,12 @@ export default async function handler(req, res) {
       return res.status(400).send('Authorization link has expired');
     }
 
-    // Create a new authorized token that the frontend can use
-    const authorizedToken = jwt.sign(
-      {
-        email,
-        name,
-        image,
-        authorized: true,
-        authorizedAt: now
-      },
-      process.env.JWT_SECRET,
-      { expiresIn: '24h' } // User session valid for 24 hours
-    );
-
-    // Send success page with redirect
+    // Admin is authorizing ANOTHER user - just show success
     res.status(200).send(`
       <!DOCTYPE html>
       <html>
       <head>
         <title>Authorization Successful</title>
-        <script>
-          // Store the authorized token and redirect
-          localStorage.setItem('authToken', '${authorizedToken}');
-          localStorage.setItem('userEmail', '${email}');
-          localStorage.setItem('userName', '${name || ''}');
-          localStorage.setItem('userImage', '${image || ''}');
-
-          // Redirect to home after storing data
-          setTimeout(() => {
-            window.location.href = '${process.env.NEXTAUTH_URL}/?authorized=true';
-          }, 2000);
-        </script>
         <style>
           body {
             font-family: Arial, sans-serif;
@@ -100,27 +73,45 @@ export default async function handler(req, res) {
             border-radius: 50%;
             margin-bottom: 10px;
           }
+          .success-icon {
+            width: 60px;
+            height: 60px;
+            margin: 0 auto 20px;
+            background: #10b981;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+          }
         </style>
       </head>
       <body>
         <div class="container">
-          <h1>✓ Authorization Successful</h1>
-          <p>You have successfully authorized login for:</p>
+          <div class="success-icon">
+            <svg width="30" height="30" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="3">
+              <polyline points="20 6 9 17 4 12"></polyline>
+            </svg>
+          </div>
+          <h1>Authorization Successful</h1>
+          <p>You have successfully authorized access for:</p>
           <div class="user-info">
             ${image ? `<img src="${image}" alt="${name}">` : ''}
             <p class="email">${email}</p>
             ${name ? `<p><strong>${name}</strong></p>` : ''}
           </div>
-          <p>The user can now access DiagnoVera.</p>
-          <p style="margin-top: 20px; color: #9ca3af;">Redirecting...</p>
+          <p>The user has been granted access to DiagnoVera.</p>
+          <p style="margin-top: 30px; font-size: 14px; color: #9ca3af;">You can close this window.</p>
         </div>
       </body>
       </html>
     `);
+
+    // Here you would typically update a database to mark this user as authorized
+    // For now, we'll use a simple file or memory store
+
   } catch (error) {
     console.error('Authorization error:', error);
 
-    // Provide more specific error messages
     if (error.name === 'TokenExpiredError') {
       res.status(400).send(`
         <!DOCTYPE html>
@@ -152,15 +143,13 @@ export default async function handler(req, res) {
           <div class="container">
             <h1>❌ Link Expired</h1>
             <p>This authorization link has expired.</p>
-            <p>Please request a new login attempt.</p>
+            <p>The user will need to request access again.</p>
           </div>
         </body>
         </html>
       `);
-    } else if (error.name === 'JsonWebTokenError') {
-      res.status(400).send('Invalid authorization link');
     } else {
-      res.status(400).send('Authorization failed');
+      res.status(400).send('Invalid authorization link');
     }
   }
 }

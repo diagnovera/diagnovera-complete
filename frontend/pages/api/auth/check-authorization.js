@@ -1,6 +1,9 @@
 // pages/api/auth/check-authorization.js
 import jwt from 'jsonwebtoken';
 
+// Store authorized tokens in memory (lasts only for current function instance)
+const authorizedTokens = new Map();
+
 export default async function handler(req, res) {
   if (req.method !== 'POST') {
     return res.status(405).json({ message: 'Method not allowed' });
@@ -13,11 +16,11 @@ export default async function handler(req, res) {
   }
 
   try {
-    // Check if this is an authorized token from localStorage
+    // Verify the token is valid
     const decoded = jwt.verify(token, process.env.JWT_SECRET);
 
-    // If token has 'authorized' field, it's from authorize.js
-    if (decoded.authorized) {
+    // Check if this specific token has been authorized
+    if (authorizedTokens.has(token)) {
       return res.status(200).json({
         authorized: true,
         email: decoded.email,
@@ -26,15 +29,16 @@ export default async function handler(req, res) {
       });
     }
 
-    // Otherwise, still waiting for authorization
+    // Not authorized yet
     return res.status(200).json({
       authorized: false,
-      email: decoded.email,
-      name: decoded.name
+      email: decoded.email
     });
 
   } catch (error) {
-    // Token is invalid or expired
-    return res.status(404).json({ message: 'Authorization not found or expired' });
+    return res.status(404).json({ message: 'Invalid or expired token' });
   }
 }
+
+// Export for authorize.js to use
+export { authorizedTokens };

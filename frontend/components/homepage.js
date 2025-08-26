@@ -73,61 +73,59 @@ export default function HomePage({ onAuthSuccess }) {
         setAwaitingAuth(true);
         setAuthEmail(res.data.email);
         setAuthToken(res.data.token);
-        // Start checking for authorization
-        pollAuthorization(res.data.token);
+// In homepage.js, update the pollAuthorization function:
+const pollAuthorization = async (token) => {
+  let attempts = 0;
+  const maxAttempts = 200; // 10 minutes with 3-second intervals
+
+  const pollInterval = setInterval(async () => {
+    attempts++;
+
+    try {
+      // Poll using email, not token
+      const response = await axios.post('/api/auth/check-authorization', {
+        email: authEmail // Use the email that was set when user tried to login
+      });
+
+      if (response.data.authorized) {
+        clearInterval(pollInterval);
+        setAwaitingAuth(false);
+
+        // Create a session token for the authorized user
+        const sessionToken = btoa(JSON.stringify({
+          email: response.data.email,
+          name: response.data.name,
+          image: response.data.image,
+          authorizedAt: new Date().toISOString()
+        }));
+
+        // Store session data
+        localStorage.setItem('authToken', sessionToken);
+        localStorage.setItem('userEmail', response.data.email);
+        localStorage.setItem('userName', response.data.name || '');
+        localStorage.setItem('userImage', response.data.image || '');
+
+        // Set cookie
+        document.cookie = `authToken=${sessionToken}; path=/; max-age=86400`;
+
+        if (onAuthSuccess) {
+          onAuthSuccess(response.data);
+        } else {
+          router.push('/dashboard');
+        }
+      }
+
+      // Stop after max attempts
+      if (attempts >= maxAttempts) {
+        clearInterval(pollInterval);
+        setAwaitingAuth(false);
+        setError('Authorization timeout. Please try again.');
       }
     } catch (err) {
-      setError(err.response?.data?.message || 'Authentication failed');
-      setAwaitingAuth(false);
+      console.error('Poll error:', err);
     }
-  };
-
-  const pollAuthorization = async (token) => {
-    let attempts = 0;
-    const maxAttempts = 200; // 10 minutes with 3-second intervals
-
-    const pollInterval = setInterval(async () => {
-      attempts++;
-
-      try {
-        const response = await axios.post('/api/auth/check-authorization', { token });
-
-        if (response.data.authorized) {
-          clearInterval(pollInterval);
-          setAwaitingAuth(false);
-
-          // Store user data
-          localStorage.setItem('authToken', token);
-          localStorage.setItem('userEmail', response.data.email);
-          localStorage.setItem('userName', response.data.name || '');
-          localStorage.setItem('userImage', response.data.image || '');
-
-          // Set cookie
-          document.cookie = `authToken=${token}; path=/; max-age=86400`;
-
-          if (onAuthSuccess) {
-            onAuthSuccess(response.data);
-          } else {
-            router.push('/dashboard');
-          }
-        }
-
-        // Stop after max attempts
-        if (attempts >= maxAttempts) {
-          clearInterval(pollInterval);
-          setAwaitingAuth(false);
-          setError('Authorization timeout. Please try again.');
-        }
-      } catch (err) {
-        // If token expired or not found, stop polling
-        if (err.response?.status === 404) {
-          clearInterval(pollInterval);
-          setAwaitingAuth(false);
-          setError('Authorization expired. Please try again.');
-        }
-      }
-    }, 3000); // Check every 3 seconds
-  };
+  }, 3000); // Check every 3 seconds
+};
 
   return (
     <>
