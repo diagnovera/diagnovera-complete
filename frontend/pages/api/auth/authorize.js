@@ -1,5 +1,7 @@
 import jwt from 'jsonwebtoken';
-import { kv } from '@vercel/kv';
+import { Redis } from '@upstash/redis';
+
+const redis = Redis.fromEnv();
 
 export default async function handler(req, res) {
   const { token } = req.query;
@@ -19,18 +21,20 @@ export default async function handler(req, res) {
       return res.status(400).send('Authorization link has expired');
     }
 
-    // Store authorization in Vercel KV with 1 hour expiry
-    await kv.set(
+    // Store authorization in Redis with 1 hour expiry
+    await redis.set(
       `auth:${email}`,
-      {
+      JSON.stringify({
         email,
         name,
         image,
         authorized: true,
         authorizedAt: now
-      },
+      }),
       { ex: 3600 } // Expires in 1 hour
     );
+
+    console.log(`Authorized ${email} in Redis`);
 
     // Send success page
     res.status(200).send(`

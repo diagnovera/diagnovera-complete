@@ -63,58 +63,60 @@ export default function HomePage({ onAuthSuccess }) {
     );
   };
 
-  const pollAuthorization = async (token) => {
-    let attempts = 0;
-    const maxAttempts = 200; // 10 minutes with 3-second intervals
+const pollAuthorization = async (token) => {
+  let attempts = 0;
+  const maxAttempts = 200;
 
-    const pollInterval = setInterval(async () => {
-      attempts++;
+  console.log('Starting poll for email:', authEmail);
 
-      try {
-        // Poll using email, not token
-        const response = await axios.post('/api/auth/check-authorization', {
-          email: authEmail // Use the email that was set when user tried to login
-        });
+  const pollInterval = setInterval(async () => {
+    attempts++;
 
-        if (response.data.authorized) {
-          clearInterval(pollInterval);
-          setAwaitingAuth(false);
+    try {
+      const response = await axios.post('/api/auth/check-authorization', {
+        email: authEmail
+      });
 
-          // Create a session token for the authorized user
-          const sessionToken = btoa(JSON.stringify({
-            email: response.data.email,
-            name: response.data.name,
-            image: response.data.image,
-            authorizedAt: new Date().toISOString()
-          }));
+      console.log(`Poll attempt ${attempts}:`, response.data);
 
-          // Store session data
-          localStorage.setItem('authToken', sessionToken);
-          localStorage.setItem('userEmail', response.data.email);
-          localStorage.setItem('userName', response.data.name || '');
-          localStorage.setItem('userImage', response.data.image || '');
+      if (response.data.authorized) {
+        console.log('Authorization confirmed!');
+        clearInterval(pollInterval);
+        setAwaitingAuth(false);
 
-          // Set cookie
-          document.cookie = `authToken=${sessionToken}; path=/; max-age=86400`;
+        // Create session token
+        const sessionToken = btoa(JSON.stringify({
+          email: response.data.email,
+          name: response.data.name,
+          image: response.data.image,
+          authorizedAt: new Date().toISOString()
+        }));
 
-          if (onAuthSuccess) {
-            onAuthSuccess(response.data);
-          } else {
-            router.push('/dashboard');
-          }
+        // Store session data
+        localStorage.setItem('authToken', sessionToken);
+        localStorage.setItem('userEmail', response.data.email);
+        localStorage.setItem('userName', response.data.name || '');
+        localStorage.setItem('userImage', response.data.image || '');
+
+        // Set cookie
+        document.cookie = `authToken=${sessionToken}; path=/; max-age=86400`;
+
+        console.log('Calling onAuthSuccess');
+        if (onAuthSuccess) {
+          onAuthSuccess(response.data);
         }
-
-        // Stop after max attempts
-        if (attempts >= maxAttempts) {
-          clearInterval(pollInterval);
-          setAwaitingAuth(false);
-          setError('Authorization timeout. Please try again.');
-        }
-      } catch (err) {
-        console.error('Poll error:', err);
       }
-    }, 3000); // Check every 3 seconds
-  };
+
+      if (attempts >= maxAttempts) {
+        clearInterval(pollInterval);
+        setAwaitingAuth(false);
+        setError('Authorization timeout. Please try again.');
+      }
+    } catch (err) {
+      console.error('Poll error:', err);
+    }
+  }, 3000);
+};
 
   const handleGoogleResponse = async (response) => {
     try {
