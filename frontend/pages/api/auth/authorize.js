@@ -1,6 +1,5 @@
-// pages/api/auth/authorize.js
 import jwt from 'jsonwebtoken';
-import { authorizedTokens } from './check-authorization';
+import { kv } from '@vercel/kv';
 
 export default async function handler(req, res) {
   const { token } = req.query;
@@ -20,14 +19,18 @@ export default async function handler(req, res) {
       return res.status(400).send('Authorization link has expired');
     }
 
-    // Mark token as authorized in memory
-    authorizedTokens.set(token, {
-      email,
-      name,
-      image,
-      authorized: true,
-      timestamp: now
-    });
+    // Store authorization in Vercel KV with 1 hour expiry
+    await kv.set(
+      `auth:${email}`,
+      {
+        email,
+        name,
+        image,
+        authorized: true,
+        authorizedAt: now
+      },
+      { ex: 3600 } // Expires in 1 hour
+    );
 
     // Send success page
     res.status(200).send(`
@@ -57,13 +60,22 @@ export default async function handler(req, res) {
             color: #10b981;
             margin-bottom: 20px;
           }
+          .email {
+            font-weight: bold;
+            color: #374151;
+            background: #f3f4f6;
+            padding: 8px 16px;
+            border-radius: 6px;
+            display: inline-block;
+            margin: 10px 0;
+          }
         </style>
       </head>
       <body>
         <div class="container">
           <h1>✓ Authorization Successful</h1>
           <p>You have successfully authorized access for:</p>
-          <p><strong>${email}</strong></p>
+          <p class="email">${email}</p>
           <p>The user can now access DiagnoVera.</p>
           <p style="margin-top: 30px; font-size: 14px; color: #9ca3af;">You can close this window.</p>
         </div>

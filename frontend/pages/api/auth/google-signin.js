@@ -1,4 +1,3 @@
-// pages/api/auth/google-signin.js
 import { OAuth2Client } from 'google-auth-library';
 import nodemailer from 'nodemailer';
 import jwt from 'jsonwebtoken';
@@ -73,8 +72,6 @@ export default async function handler(req, res) {
             </a>
           </div>
           <p style="color: #666; font-size: 14px;">This link will expire in 10 minutes.</p>
-          <hr style="border: none; border-top: 1px solid #e5e7eb; margin: 30px 0;">
-          <p style="color: #999; font-size: 12px;">If you did not expect this request, please ignore this email.</p>
         </div>
       `
     });

@@ -7,6 +7,7 @@
     "lib": "lib"
   },
   "dependencies": {
+    "@vercel/kv": "^3.0.0",
     "ansi-regex": "^6.1.0",
     "ansi-styles": "^6.2.1",
     "any-promise": "^1.3.0",
