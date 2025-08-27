@@ -1,5 +1,5 @@
 // components/HomePage.js
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useRouter } from 'next/router';
 import axios from 'axios';
 import Script from 'next/script';
@@ -10,6 +10,7 @@ export default function HomePage({ onAuthSuccess }) {
   const [awaitingAuth, setAwaitingAuth] = useState(false);
   const [authEmail, setAuthEmail] = useState('');
   const [authToken, setAuthToken] = useState('');
+  const pollIntervalRef = useRef(null);
 
   useEffect(() => {
     // Check URL params for authorization redirect
@@ -42,6 +43,13 @@ export default function HomePage({ onAuthSuccess }) {
     if (window.google) {
       initializeGoogleSignIn();
     }
+
+    // Cleanup function to clear polling on unmount
+    return () => {
+      if (pollIntervalRef.current) {
+        clearInterval(pollIntervalRef.current);
+      }
+    };
   }, [router, onAuthSuccess]);
 
   const initializeGoogleSignIn = () => {
@@ -63,78 +71,132 @@ export default function HomePage({ onAuthSuccess }) {
     );
   };
 
-const pollAuthorization = async (token) => {
-  let attempts = 0;
-  const maxAttempts = 200;
+  const pollAuthorization = async (email) => {
+    // Clear any existing polling
+    if (pollIntervalRef.current) {
+      clearInterval(pollIntervalRef.current);
+    }
 
-  console.log('Starting poll for email:', authEmail);
+    // Validate email before starting
+    if (!email || email.trim() === '') {
+      console.error('Cannot poll with empty email');
+      setAwaitingAuth(false);
+      setError('Email validation failed. Please try again.');
+      return;
+    }
 
-  const pollInterval = setInterval(async () => {
-    attempts++;
+    let attempts = 0;
+    const maxAttempts = 200;
 
-    try {
-      const response = await axios.post('/api/auth/check-authorization', {
-        email: authEmail
-      });
+    console.log('Starting poll for email:', email);
 
-      console.log(`Poll attempt ${attempts}:`, response.data);
+    pollIntervalRef.current = setInterval(async () => {
+      attempts++;
 
-      if (response.data.authorized) {
-        console.log('Authorization confirmed!');
-        clearInterval(pollInterval);
-        setAwaitingAuth(false);
+      try {
+        const response = await axios.post('/api/auth/check-authorization', {
+          email: email
+        });
 
-        // Create session token
-        const sessionToken = btoa(JSON.stringify({
-          email: response.data.email,
-          name: response.data.name,
-          image: response.data.image,
-          authorizedAt: new Date().toISOString()
-        }));
+        console.log(`Poll attempt ${attempts}:`, response.data);
 
-        // Store session data
-        localStorage.setItem('authToken', sessionToken);
-        localStorage.setItem('userEmail', response.data.email);
-        localStorage.setItem('userName', response.data.name || '');
-        localStorage.setItem('userImage', response.data.image || '');
+        if (response.data.authorized) {
+          console.log('Authorization confirmed!');
+          clearInterval(pollIntervalRef.current);
+          pollIntervalRef.current = null;
+          setAwaitingAuth(false);
 
-        // Set cookie
-        document.cookie = `authToken=${sessionToken}; path=/; max-age=86400`;
+          // Create session token
+          const sessionToken = btoa(JSON.stringify({
+            email: response.data.email,
+            name: response.data.name,
+            image: response.data.image,
+            authorizedAt: new Date().toISOString()
+          }));
 
-        console.log('Calling onAuthSuccess');
-        if (onAuthSuccess) {
-          onAuthSuccess(response.data);
+          // Store session data
+          localStorage.setItem('authToken', sessionToken);
+          localStorage.setItem('userEmail', response.data.email);
+          localStorage.setItem('userName', response.data.name || '');
+          localStorage.setItem('userImage', response.data.image || '');
+
+          // Set cookie
+          document.cookie = `authToken=${sessionToken}; path=/; max-age=86400`;
+
+          console.log('Calling onAuthSuccess');
+          if (onAuthSuccess) {
+            onAuthSuccess(response.data);
+          } else {
+            router.push('/dashboard');
+          }
+          return;
+        }
+
+      } catch (err) {
+        console.error('Poll error:', err);
+        
+        // If it's a 400 error (bad email), stop polling
+        if (err.response?.status === 400) {
+          console.error('Bad request - stopping polling');
+          clearInterval(pollIntervalRef.current);
+          pollIntervalRef.current = null;
+          setAwaitingAuth(false);
+          setError('Authorization failed. Please try logging in again.');
+          return;
         }
       }
 
+      // Stop after max attempts
       if (attempts >= maxAttempts) {
-        clearInterval(pollInterval);
+        clearInterval(pollIntervalRef.current);
+        pollIntervalRef.current = null;
         setAwaitingAuth(false);
         setError('Authorization timeout. Please try again.');
       }
-    } catch (err) {
-      console.error('Poll error:', err);
-    }
-  }, 3000);
-};
+    }, 3000);
+  };
 
   const handleGoogleResponse = async (response) => {
     try {
+      setError(''); // Clear any previous errors
+      
       const res = await axios.post('/api/auth/google-signin', {
         credential: response.credential
       });
 
       if (res.data.success) {
+        const userEmail = res.data.email;
+        
         setAwaitingAuth(true);
-        setAuthEmail(res.data.email);
+        setAuthEmail(userEmail);
         setAuthToken(res.data.token);
-        // Start polling for authorization
-        pollAuthorization(res.data.token);
+        
+        // Start polling with the actual email
+        pollAuthorization(userEmail);
       }
     } catch (err) {
+      console.error('Google signin error:', err);
       setError(err.response?.data?.message || 'Authentication failed');
       setAwaitingAuth(false);
+      
+      // Clear any polling that might have started
+      if (pollIntervalRef.current) {
+        clearInterval(pollIntervalRef.current);
+        pollIntervalRef.current = null;
+      }
     }
+  };
+
+  // Function to cancel the authorization process
+  const cancelAuthorization = () => {
+    if (pollIntervalRef.current) {
+      clearInterval(pollIntervalRef.current);
+      pollIntervalRef.current = null;
+    }
+    setAwaitingAuth(false);
+    setAuthEmail('');
+    setAuthToken('');
+    setError('');
   };
 
   return (
@@ -195,6 +257,8 @@ const pollAuthorization = async (token) => {
         @keyframes spin{0%{transform:rotate(0deg)}100%{transform:rotate(360deg)}}
         .auth-info{background:#e0e7ff;border:1px solid #c7d2fe;border-radius:8px;padding:12px;margin-top:12px}
         .auth-info p{margin:4px 0;font-size:.9rem;color:#4c1d95}
+        .cancel-btn{background:#6b7280;color:white;border:none;padding:8px 16px;border-radius:6px;cursor:pointer;margin-top:12px;font-size:.85rem}
+        .cancel-btn:hover{background:#4b5563}
         footer{background:var(--soft);border-top:1px solid var(--border);padding:22px 0;color:#64748b}
         .founder-wrap{max-width:1000px;margin:0 auto}
         .f-tabs{display:flex;gap:10px;flex-wrap:wrap;margin:12px 0 0}
@@ -245,7 +309,7 @@ const pollAuthorization = async (token) => {
       <section className="hero">
         <div className="container two">
           <div>
-            <h1>DVera™: <span className="grad">Renal Subspecialty AI</span> — Dialysis Analytics & CKD Management</h1>
+            <h1>DVera™: <span className="grad">Renal Subspecialty AI</span> – Dialysis Analytics & CKD Management</h1>
             <div className="tabs" role="tablist" aria-label="Focus areas">
               <button className="tab active" role="tab" onClick={(e) => {
                 document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
@@ -292,6 +356,13 @@ const pollAuthorization = async (token) => {
                     <p><strong>Gmail Account:</strong> {authEmail}</p>
                     <p>Please wait for approval...</p>
                   </div>
+                  <button 
+                    className="cancel-btn" 
+                    onClick={cancelAuthorization}
+                    type="button"
+                  >
+                    Cancel Authorization
+                  </button>
                 </div>
               ) : (
                 <>
@@ -493,7 +564,7 @@ const pollAuthorization = async (token) => {
                   accord.classList.toggle('open');
                 }}>Executive Profile</button>
                 <div className="content">
-                  Nephrology physician and founder leading strategy, clinical safety, and model governance for DVera™ — aligning scientific rigor with operational scalability.
+                  Nephrology physician and founder leading strategy, clinical safety, and model governance for DVera™ – aligning scientific rigor with operational scalability.
                 </div>
               </div>
               <div className="accord" id="a2">
