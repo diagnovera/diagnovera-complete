@@ -20,18 +20,18 @@ export default async function handler(req, res) {
     const decoded = jwt.verify(token, process.env.JWT_SECRET);
     const { email, name, image, timestamp } = decoded;
 
-    // Check if token is expired (10 minutes)
-    const now = Date.now();
-    const age = now - timestamp;
-    if (age > 600000) {
-      return res.status(400).send(`
-        <html><body style="font-family: Arial; text-align: center; padding: 50px;">
-          <h2>Authorization Link Expired</h2>
-          <p>This link expired ${Math.round(age / 60000)} minutes after creation.</p>
-          <p>Please request a new login.</p>
-        </body></html>
-      `);
-    }
+ // Change the expiration check:
+const now = Date.now();
+const age = now - timestamp;
+if (age > 1800000) { // 30 minutes instead of 600000 (10 minutes)
+  return res.status(400).send(`
+    <html><body style="font-family: Arial; text-align: center; padding: 50px;">
+      <h2>Authorization Link Expired</h2>
+      <p>This link expired ${Math.round(age / 60000)} minutes after creation.</p>
+      <p>Please request a new login.</p>
+    </body></html>
+  `);
+}
 
     // Store authorization in Redis
     const authData = {

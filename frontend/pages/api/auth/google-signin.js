@@ -36,16 +36,18 @@ export default async function handler(req, res) {
     }
 
     // Generate authorization token with ALL user data
-    const authToken = jwt.sign(
-      {
-        email,
-        name,
-        image: picture,
-        timestamp: Date.now()
-      },
-      process.env.JWT_SECRET,
-      { expiresIn: '10m' }
-    );
+// Change this section:
+const authToken = jwt.sign(
+  {
+    email,
+    name,
+    image: picture,
+    timestamp: Date.now(),
+    iat: Math.floor(Date.now() / 1000)
+  },
+  process.env.JWT_SECRET,
+  { expiresIn: '30m' } // Increase from 10m to 30m
+);
 
     // Create authorization link
     const authLink = `${process.env.NEXTAUTH_URL}/api/auth/authorize?token=${authToken}`;
