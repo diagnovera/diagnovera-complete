@@ -1303,7 +1303,6 @@ const DiagnoVeraEnterpriseInterface = () => {
   return (
     <div className="min-h-screen bg-gray-100 p-4">
       <div className="max-w-7xl mx-auto">
-        {/* Header */}
         <div className="bg-gradient-to-r from-slate-900 via-blue-900 to-slate-900 shadow-2xl rounded-lg p-4 mb-4 border-t-4 border-blue-500">
           <div className="flex justify-between items-center">
             <div className="flex items-center gap-4">
@@ -1387,11 +1386,8 @@ const DiagnoVeraEnterpriseInterface = () => {
           </div>
         </div>
 
-        {/* Main Content Grid */}
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
-          {/* Patient Data Entry */}
           <div className="lg:col-span-1 space-y-4">
-            {/* Demographics */}
             <div className="bg-white shadow rounded-lg p-4">
               <h2 className="text-lg font-bold mb-3 flex items-center gap-2">
                 <Type size={18} />
@@ -1424,7 +1420,6 @@ const DiagnoVeraEnterpriseInterface = () => {
               </div>
             </div>
 
-            {/* Subjective Data */}
             <div className="bg-white shadow rounded-lg p-4">
               <h2 className="text-lg font-bold mb-3">Subjective Data</h2>
               
@@ -1489,7 +1484,6 @@ const DiagnoVeraEnterpriseInterface = () => {
               />
             </div>
 
-            {/* Objective Data */}
             <div className="bg-white shadow rounded-lg p-4">
               <h2 className="text-lg font-bold mb-3">Objective Data</h2>
 
@@ -1553,7 +1547,6 @@ const DiagnoVeraEnterpriseInterface = () => {
               />
             </div>
 
-            {/* Suspected Diagnoses */}
             <div className="bg-white shadow rounded-lg p-4">
               <h2 className="text-lg font-bold mb-3">Suspected Diagnoses</h2>
               <EpicAutocompleteField
@@ -1567,7 +1560,6 @@ const DiagnoVeraEnterpriseInterface = () => {
               />
             </div>
 
-            {/* Submit Button */}
             <button
               onClick={submitToN8n}
               disabled={isProcessing}
@@ -1597,9 +1589,7 @@ const DiagnoVeraEnterpriseInterface = () => {
             )}
           </div>
 
-          {/* Visualizations */}
           <div className="lg:col-span-2 space-y-4">
-            {/* Complex Plane Visualization */}
             <div className="bg-white shadow rounded-lg p-4">
               <div className="flex justify-between items-center mb-3">
                 <h2 className="text-lg font-bold flex items-center gap-2">
@@ -1622,4 +1612,40 @@ const DiagnoVeraEnterpriseInterface = () => {
                       onChange={(e) => setShowLabels(e.target.checked)}
                     />
                     Labels
-                
+                  </label>
+                  <select
+                    value={selectedDomains}
+                    onChange={(e) => setSelectedDomains(e.target.value)}
+                    className="text-xs border border-gray-300 rounded px-2 py-1"
+                  >
+                    <option value="all">All Domains</option>
+                    <option value="symptoms">Symptoms</option>
+                    <option value="vitals">Vitals</option>
+                    <option value="medications">Medications</option>
+                  </select>
+                </div>
+              </div>
+              <ComplexPlaneChart 
+                data={processedData} 
+                showConnections={showConnections}
+                showLabels={showLabels}
+                selectedDomains={selectedDomains}
+              />
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <KuramotoAnalysis data={processedData} n8nResults={n8nResults} />
+              <BayesianAnalysis n8nResults={n8nResults} />
+            </div>
+
+            {n8nResults && (
+              <N8nResultsDisplay results={n8nResults} />
+            )}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+export default DiagnoVeraEnterpriseInterface;
