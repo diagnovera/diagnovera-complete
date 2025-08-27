@@ -5,37 +5,13 @@ import { ChevronDown, X, Loader2, Download, RotateCcw, BarChart3, GitBranch, Typ
 
 // Configuration
 const config = {
-  BACKEND_URL: process.env.NEXT_PUBLIC_BACKEND_URL || 'http://localhost:5000',
-  N8N_WEBHOOK_URL: process.env.NEXT_PUBLIC_N8N_WEBHOOK_URL || 'https://n8n.srv934967.hstgr.cloud/webhook/medical-diagnosis'
+  BACKEND_URL: typeof window !== 'undefined' && window.location ? 
+    (window.location.hostname === 'localhost' ? 'http://localhost:5000' : 'https://diagnovera-backend-924070815611.us-central1.run.app') :
+    'http://localhost:5000',
+  N8N_WEBHOOK_URL: 'https://n8n.srv934967.hstgr.cloud/webhook/medical-diagnosis'
 };
 
 console.log('Backend URL:', config.BACKEND_URL);
-
-// Mock disease database
-const diseaseDatabase = {
-  'Myocardial Infarction': {
-    symptoms: ['chest pain', 'sweating', 'dyspnea', 'nausea', 'diaphoresis', 'radiating pain'],
-    labs: { 'Troponin': { min: 0.04, indicator: 'high' }, 'CK-MB': { min: 5, indicator: 'high' } },
-    vitals: { heartRate: { min: 100, max: 150 }, systolicBP: { min: 140 } },
-    prior: 0.05
-  },
-  'Pneumonia': {
-    symptoms: ['cough', 'fever', 'dyspnea', 'chills', 'fatigue', 'sputum'],
-    labs: { 'WBC': { min: 12, indicator: 'high' }, 'CRP': { min: 10, indicator: 'high' } },
-    vitals: { temperature: { min: 100.4 }, respiratoryRate: { min: 22 } },
-    prior: 0.10
-  },
-  'Heart Failure': {
-    symptoms: ['dyspnea', 'orthopnea', 'edema', 'fatigue', 'weakness', 'pnd'],
-    labs: { 'BNP': { min: 100, indicator: 'high' }, 'Troponin': { min: 0.02, indicator: 'high' } },
-    vitals: { o2Saturation: { max: 92 }, respiratoryRate: { min: 20 } },
-    prior: 0.08
-  }
-};
-
-const findSimilarDiseases = (symptomString) => {
-  return [];
-};
 
 // D3 Module Handler
 class D3Module {
@@ -152,37 +128,24 @@ class WebSocketService {
 
 const websocketService = new WebSocketService();
 
-// Replace the n8nService object in your DiagnoVeraEnterpriseInterface.js (around line 184)
-
+// n8n Service with AI integration
 const n8nService = {
   async sendToN8n(patientData, processedData) {
     try {
-      // Build the payload that matches what your n8n workflow expects
       const payload = {
-        // Primary patient identifiers
         patient_id: patientData.demographics.mrn || 'unknown',
         timestamp: new Date().toISOString(),
-
-        // Demographics
         demographics: {
           mrn: patientData.demographics.mrn || 'unknown',
           age: patientData.demographics.age || '',
           sex: patientData.demographics.sex || 'Unknown'
         },
-
-        // Clinical presentation
         chief_complaint: patientData.subjective.chiefComplaint || '',
         symptoms: patientData.subjective.symptoms || [],
-
-        // Combined text for NLP processing
         text: `${patientData.subjective.chiefComplaint}. Patient reports: ${patientData.subjective.symptoms.join(', ')}`,
-
-        // History
         medical_history: patientData.subjective.pastMedicalHistory || [],
         medications: patientData.subjective.medications || [],
         allergies: patientData.subjective.allergyHistory || [],
-
-        // Vitals - ensure they're in the format n8n expects
         vitals: {
           temperature: patientData.objective.vitals.temperature || '',
           heart_rate: patientData.objective.vitals.heartRate || '',
@@ -190,12 +153,8 @@ const n8nService = {
           respiratory_rate: patientData.objective.vitals.respiratoryRate || '',
           oxygen_saturation: patientData.objective.vitals.o2Saturation || ''
         },
-
-        // Diagnostic data
         laboratory: patientData.objective.laboratory || [],
         imaging: patientData.objective.imaging || [],
-
-        // Complex analysis data
         complex_analysis: {
           total_data_points: Object.values(processedData).flat().length,
           domains: Object.keys(processedData),
@@ -203,8 +162,7 @@ const n8nService = {
         }
       };
 
-      console.log('Sending to n8n - Full payload:');
-      console.log(JSON.stringify(payload, null, 2));
+      console.log('Sending to n8n:', JSON.stringify(payload, null, 2));
 
       const response = await fetch(config.N8N_WEBHOOK_URL, {
         method: 'POST',
@@ -215,21 +173,14 @@ const n8nService = {
         body: JSON.stringify(payload)
       });
 
-      console.log('Response status:', response.status);
-      console.log('Response headers:', response.headers);
-
-      // Get response as text first to debug
       const responseText = await response.text();
-      console.log('Response text:', responseText);
+      console.log('n8n response:', responseText);
 
-      // Check if response is ok
       if (!response.ok) {
         throw new Error(`HTTP error! status: ${response.status}, message: ${responseText}`);
       }
 
-      // Handle empty response
       if (!responseText || responseText.trim() === '') {
-        console.warn('n8n returned empty response - workflow may be misconfigured');
         return {
           success: true,
           status: 'completed',
@@ -243,20 +194,11 @@ const n8nService = {
         };
       }
 
-      // Try to parse as JSON
       let data;
       try {
         data = JSON.parse(responseText);
       } catch (parseError) {
         console.error('Failed to parse response as JSON:', parseError);
-        console.log('Raw response:', responseText);
-
-        // Check for common n8n response messages
-        if (responseText.includes('Workflow was started')) {
-          throw new Error('n8n workflow started but not configured to return results. Update "Respond to Webhook" node.');
-        }
-
-        // Return error response
         return {
           error: true,
           message: 'Invalid JSON response from n8n',
@@ -265,62 +207,35 @@ const n8nService = {
         };
       }
 
-      console.log('n8n response - Parsed data:', data);
-
-      // Validate and normalize the response
       const normalizedResponse = {
         success: data.success !== false,
         status: data.status || 'completed',
         patient_id: data.patient_id || payload.patient_id,
         encounter_id: data.encounter_id || `ENC-${Date.now()}`,
         timestamp: data.timestamp || new Date().toISOString(),
-
-        // Handle different possible field names for diagnoses
         diagnoses: data.diagnoses || data.diagnosis_list || data.differential_diagnoses || [],
-
-        // Recommendations
         recommendations: data.recommendations || data.clinical_recommendations || [],
-
-        // Labs
         labs_to_order: data.labs_to_order || data.suggested_labs || data.laboratory_tests || [],
-
-        // Confidence and urgency
         confidence: data.confidence !== undefined ? data.confidence : 0.5,
         urgency_level: data.urgency_level || data.priority || 'ROUTINE',
-
-        // Summary and findings
         summary: data.summary || data.clinical_summary || 'Analysis complete',
         critical_findings: data.critical_findings || {},
         diagnostic_report: data.diagnostic_report || {},
-
-        // Include patient data echo for verification
         patient_data: data.patient_data || {
           chief_complaint: payload.chief_complaint,
           symptoms: payload.symptoms,
           vitals: payload.vitals
         },
-
-        // Debug info
         debug: {
           workflow_response: data.debug_info || null,
           original_response_keys: Object.keys(data)
         }
       };
 
-      // Check if we got meaningful results
-      if (normalizedResponse.diagnoses.length === 0 &&
-          normalizedResponse.recommendations.length === 0 &&
-          !normalizedResponse.summary) {
-        console.warn('n8n returned empty analysis results');
-        normalizedResponse.message = 'Analysis completed but no specific findings generated';
-      }
-
       return normalizedResponse;
 
     } catch (error) {
       console.error('Error sending to n8n:', error);
-
-      // Return a structured error response
       return {
         error: true,
         success: false,
@@ -341,10 +256,9 @@ const n8nService = {
   }
 };
 
-// Data cache
+// Data cache and fallback data
 const dataCache = new Map();
 
-// Fallback data
 const getFallbackData = (dataFile) => {
   const fallbacks = {
     symptoms: ['Chest pain', 'Shortness of breath', 'Fever', 'Cough', 'Fatigue', 'Headache', 'Nausea', 'Dizziness'],
@@ -354,9 +268,9 @@ const getFallbackData = (dataFile) => {
     past_surgical_history: ['Appendectomy', 'Cholecystectomy', 'Knee arthroscopy', 'Hernia repair'],
     laboratory_tests: ['Complete Blood Count', 'Basic Metabolic Panel', 'Troponin', 'BNP', 'D-dimer', 'CRP'],
     imaging_studies: ['Chest X-ray', 'CT Chest', 'Echocardiogram', 'EKG', 'MRI Brain'],
-    diagnoses: ['Acute MI', 'Pneumonia', 'Heart Failure', 'COPD Exacerbation', 'Pulmonary Embolism']
+    diagnoses: ['Acute MI', 'Pneumonia', 'Heart Failure', 'COPD Exacerbation', 'Pulmonary Embolism'],
+    chief_complaint: ['Chest pain', 'Shortness of breath', 'Abdominal pain', 'Headache', 'Fever']
   };
-
   return fallbacks[dataFile] || [];
 };
 
@@ -414,25 +328,6 @@ const useDataLoader = (dataFile) => {
   }, [dataFile]);
 
   return { data, loading, error };
-};
-
-// Preload data files
-export const preloadDataFiles = (files) => {
-  if (typeof window === 'undefined') return;
-  
-  files.forEach(file => {
-    if (!dataCache.has(file)) {
-      fetch(`/data/${file}.json`)
-        .then(res => res.json())
-        .then(result => {
-          dataCache.set(file, result.items || result || []);
-        })
-        .catch(err => {
-          console.warn(`Using fallback data for ${file}`);
-          dataCache.set(file, getFallbackData(file));
-        });
-    }
-  });
 };
 
 // EpicAutocompleteField component
@@ -612,6 +507,118 @@ const EpicAutocompleteField = ({
   );
 };
 
+// Lab Field Component
+const EpicLabField = ({
+  label,
+  dataFile,
+  value,
+  onChange,
+  placeholder,
+  color = '#70AD47',
+  maxResults = 50,
+  debounceMs = 300
+}) => {
+  const [isOpen, setIsOpen] = useState(false);
+  const [searchTerm, setSearchTerm] = useState('');
+  const dropdownRef = useRef(null);
+
+  const { data: options, loading } = useDataLoader(dataFile);
+
+  const handleSelect = useCallback((option) => {
+    const currentLabs = Array.isArray(value) ? value : [];
+    if (!currentLabs.find(lab => lab.name === option)) {
+      onChange([...currentLabs, { name: option, value: '', unit: '' }]);
+    }
+    setIsOpen(false);
+    setSearchTerm('');
+  }, [value, onChange]);
+
+  const updateLabValue = useCallback((labName, field, fieldValue) => {
+    const currentLabs = Array.isArray(value) ? value : [];
+    onChange(currentLabs.map(lab =>
+      lab.name === labName ? { ...lab, [field]: fieldValue } : lab
+    ));
+  }, [value, onChange]);
+
+  const removeItem = useCallback((labName) => {
+    onChange((Array.isArray(value) ? value : []).filter(lab => lab.name !== labName));
+  }, [value, onChange]);
+
+  const filteredOptions = useMemo(() => {
+    if (!searchTerm) return options.slice(0, maxResults);
+    const lowerSearchTerm = searchTerm.toLowerCase();
+    return options.filter(option => option.toLowerCase().includes(lowerSearchTerm)).slice(0, maxResults);
+  }, [searchTerm, options, maxResults]);
+
+  const displayLabs = Array.isArray(value) ? value : [];
+
+  return (
+    <div className="mb-3" ref={dropdownRef}>
+      <div className="flex items-center mb-1">
+        <div className="w-2 h-2 rounded-full mr-2" style={{ backgroundColor: color }} />
+        <label className="text-xs font-semibold text-gray-700 uppercase tracking-wide">{label}</label>
+      </div>
+
+      {displayLabs.map((lab, index) => (
+        <div key={index} className="flex items-center gap-2 mb-2 p-2 bg-green-50 border border-green-200">
+          <span className="text-sm font-medium flex-1">{lab.name}</span>
+          <input
+            type="text"
+            placeholder="Value"
+            value={lab.value}
+            onChange={(e) => updateLabValue(lab.name, 'value', e.target.value)}
+            className="w-16 p-1 text-sm border rounded"
+          />
+          <input
+            type="text"
+            placeholder="Unit"
+            value={lab.unit}
+            onChange={(e) => updateLabValue(lab.name, 'unit', e.target.value)}
+            className="w-16 p-1 text-sm border rounded"
+          />
+          <button onClick={() => removeItem(lab.name)} className="text-red-500">
+            <X size={14} />
+          </button>
+        </div>
+      ))}
+
+      <div
+        className="relative bg-white border-2 border-gray-200 hover:border-[#70AD47]"
+        style={{ borderLeftColor: color, borderLeftWidth: '4px' }}
+      >
+        <div className="flex items-center p-2">
+          <input
+            type="text"
+            value={searchTerm}
+            onChange={(e) => setSearchTerm(e.target.value)}
+            onFocus={() => setIsOpen(true)}
+            placeholder={placeholder}
+            className="flex-1 outline-none text-sm"
+          />
+          <ChevronDown 
+            onClick={() => setIsOpen(!isOpen)}
+            className="ml-2 h-3 w-3 text-gray-400 cursor-pointer" 
+          />
+        </div>
+
+        {isOpen && (
+          <div className="absolute z-[100] w-full mt-1 bg-white border-2 border-[#70AD47] shadow-lg max-h-48 overflow-auto">
+            {filteredOptions.map((option, index) => (
+              <div
+                key={index}
+                onClick={() => handleSelect(option)}
+                className="px-3 py-2 text-sm hover:bg-green-50 cursor-pointer"
+              >
+                {option}
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+};
+
 // Imaging Field Component
 const EpicImagingField = ({
   label,
@@ -620,47 +627,13 @@ const EpicImagingField = ({
   onChange,
   placeholder,
   color = '#FECA57',
-  maxResults = 50,
-  debounceMs = 300
+  maxResults = 50
 }) => {
   const [isOpen, setIsOpen] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
-  const [debouncedSearchTerm, setDebouncedSearchTerm] = useState('');
   const dropdownRef = useRef(null);
-  const searchTimeoutRef = useRef(null);
 
   const { data: options, loading } = useDataLoader(dataFile);
-
-  useEffect(() => {
-    if (searchTimeoutRef.current) {
-      clearTimeout(searchTimeoutRef.current);
-    }
-
-    searchTimeoutRef.current = setTimeout(() => {
-      setDebouncedSearchTerm(searchTerm);
-    }, debounceMs);
-
-    return () => {
-      if (searchTimeoutRef.current) {
-        clearTimeout(searchTimeoutRef.current);
-      }
-    };
-  }, [searchTerm, debounceMs]);
-
-  const filteredOptions = useMemo(() => {
-    if (!debouncedSearchTerm) return options.slice(0, maxResults);
-
-    const lowerSearchTerm = debouncedSearchTerm.toLowerCase();
-    const filtered = [];
-
-    for (let i = 0; i < options.length && filtered.length < maxResults; i++) {
-      if (options[i].toLowerCase().includes(lowerSearchTerm)) {
-        filtered.push(options[i]);
-      }
-    }
-
-    return filtered;
-  }, [debouncedSearchTerm, options, maxResults]);
 
   const handleSelect = useCallback((option) => {
     const currentImaging = Array.isArray(value) ? value : [];
@@ -669,11 +642,6 @@ const EpicImagingField = ({
     }
     setIsOpen(false);
     setSearchTerm('');
-    setDebouncedSearchTerm('');
-    const input = dropdownRef.current?.querySelector('input[type="text"]');
-    if (input) {
-      input.value = '';
-    }
   }, [value, onChange]);
 
   const updateFindings = useCallback((study, findings) => {
@@ -687,6 +655,12 @@ const EpicImagingField = ({
     onChange((Array.isArray(value) ? value : []).filter(img => img.study !== study));
   }, [value, onChange]);
 
+  const filteredOptions = useMemo(() => {
+    if (!searchTerm) return options.slice(0, maxResults);
+    const lowerSearchTerm = searchTerm.toLowerCase();
+    return options.filter(option => option.toLowerCase().includes(lowerSearchTerm)).slice(0, maxResults);
+  }, [searchTerm, options, maxResults]);
+
   const displayImaging = Array.isArray(value) ? value : [];
 
   return (
@@ -694,9 +668,6 @@ const EpicImagingField = ({
       <div className="flex items-center mb-1">
         <div className="w-2 h-2 rounded-full mr-2" style={{ backgroundColor: color }} />
         <label className="text-xs font-semibold text-gray-700 uppercase tracking-wide">{label}</label>
-        {loading && (
-          <Loader2 className="ml-2 h-3 w-3 animate-spin text-gray-400" />
-        )}
       </div>
 
       {displayImaging.map((img, index) => (
@@ -722,216 +693,33 @@ const EpicImagingField = ({
       <div
         className="relative bg-white border-2 border-gray-200 hover:border-[#FECA57]"
         style={{ borderLeftColor: color, borderLeftWidth: '4px' }}
-        onClick={() => setIsOpen(!isOpen)}
       >
         <div className="flex items-center p-2">
           <input
             type="text"
             value={searchTerm}
-            onChange={(e) => {
-              setSearchTerm(e.target.value);
-              if (!isOpen) setIsOpen(true);
-            }}
+            onChange={(e) => setSearchTerm(e.target.value)}
+            onFocus={() => setIsOpen(true)}
             placeholder={placeholder}
             className="flex-1 outline-none text-sm"
-            onFocus={() => setIsOpen(true)}
           />
-          <ChevronDown className="ml-2 h-3 w-3 text-gray-400" />
+          <ChevronDown 
+            onClick={() => setIsOpen(!isOpen)}
+            className="ml-2 h-3 w-3 text-gray-400 cursor-pointer" 
+          />
         </div>
 
         {isOpen && (
           <div className="absolute z-[100] w-full mt-1 bg-white border-2 border-[#FECA57] shadow-lg max-h-48 overflow-auto">
-            {loading ? (
-              <div className="p-3 text-gray-500 text-center text-sm">
-                <Loader2 className="h-4 w-4 animate-spin mx-auto mb-1" />
-                Loading options...
+            {filteredOptions.map((option, index) => (
+              <div
+                key={index}
+                onClick={() => handleSelect(option)}
+                className="px-3 py-2 text-sm hover:bg-yellow-50 cursor-pointer"
+              >
+                {option}
               </div>
-            ) : (
-              <>
-                {debouncedSearchTerm && (
-                  <div className="p-2 bg-gray-50 border-b text-xs text-gray-600">
-                    Showing {filteredOptions.length} results
-                  </div>
-                )}
-                {filteredOptions.map((option, index) => (
-                  <div
-                    key={index}
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      handleSelect(option);
-                    }}
-                    className="px-3 py-2 text-sm hover:bg-yellow-50 cursor-pointer"
-                  >
-                    {option}
-                  </div>
-                ))}
-              </>
-            )}
-          </div>
-        )}
-      </div>
-    </div>
-  );
-};
-
-// Lab Field Component
-const EpicLabField = ({
-  label,
-  dataFile,
-  value,
-  onChange,
-  placeholder,
-  color = '#70AD47',
-  maxResults = 50,
-  debounceMs = 300
-}) => {
-  const [isOpen, setIsOpen] = useState(false);
-  const [searchTerm, setSearchTerm] = useState('');
-  const [debouncedSearchTerm, setDebouncedSearchTerm] = useState('');
-  const dropdownRef = useRef(null);
-  const searchTimeoutRef = useRef(null);
-
-  const { data: options, loading } = useDataLoader(dataFile);
-
-  useEffect(() => {
-    if (searchTimeoutRef.current) {
-      clearTimeout(searchTimeoutRef.current);
-    }
-
-    searchTimeoutRef.current = setTimeout(() => {
-      setDebouncedSearchTerm(searchTerm);
-    }, debounceMs);
-
-    return () => {
-      if (searchTimeoutRef.current) {
-        clearTimeout(searchTimeoutRef.current);
-      }
-    };
-  }, [searchTerm, debounceMs]);
-
-  const filteredOptions = useMemo(() => {
-    if (!debouncedSearchTerm) return options.slice(0, maxResults);
-
-    const lowerSearchTerm = debouncedSearchTerm.toLowerCase();
-    const filtered = [];
-
-    for (let i = 0; i < options.length && filtered.length < maxResults; i++) {
-      if (options[i].toLowerCase().includes(lowerSearchTerm)) {
-        filtered.push(options[i]);
-      }
-    }
-
-    return filtered;
-  }, [debouncedSearchTerm, options, maxResults]);
-
-  const handleSelect = useCallback((option) => {
-    const currentLabs = Array.isArray(value) ? value : [];
-    if (!currentLabs.find(lab => lab.name === option)) {
-      onChange([...currentLabs, { name: option, value: '', unit: '' }]);
-    }
-    setIsOpen(false);
-    setSearchTerm('');
-    setDebouncedSearchTerm('');
-    const input = dropdownRef.current?.querySelector('input[type="text"]');
-    if (input) {
-      input.value = '';
-    }
-  }, [value, onChange]);
-
-  const updateLabValue = useCallback((labName, field, fieldValue) => {
-    const currentLabs = Array.isArray(value) ? value : [];
-    onChange(currentLabs.map(lab =>
-      lab.name === labName ? { ...lab, [field]: fieldValue } : lab
-    ));
-  }, [value, onChange]);
-
-  const removeItem = useCallback((labName) => {
-    onChange((Array.isArray(value) ? value : []).filter(lab => lab.name !== labName));
-  }, [value, onChange]);
-
-  const displayLabs = Array.isArray(value) ? value : [];
-
-  return (
-    <div className="mb-3" ref={dropdownRef}>
-      <div className="flex items-center mb-1">
-        <div className="w-2 h-2 rounded-full mr-2" style={{ backgroundColor: color }} />
-        <label className="text-xs font-semibold text-gray-700 uppercase tracking-wide">{label}</label>
-        {loading && (
-          <Loader2 className="ml-2 h-3 w-3 animate-spin text-gray-400" />
-        )}
-      </div>
-
-      {displayLabs.map((lab, index) => (
-        <div key={index} className="flex items-center gap-2 mb-2 p-2 bg-green-50 border border-green-200">
-          <span className="text-sm font-medium flex-1">{lab.name}</span>
-          <input
-            type="text"
-            placeholder="Value"
-            value={lab.value}
-            onChange={(e) => updateLabValue(lab.name, 'value', e.target.value)}
-            className="w-16 p-1 text-sm border"
-          />
-          <input
-            type="text"
-            placeholder="Unit"
-            value={lab.unit}
-            onChange={(e) => updateLabValue(lab.name, 'unit', e.target.value)}
-            className="w-16 p-1 text-sm border"
-          />
-          <button onClick={() => removeItem(lab.name)} className="text-red-500">
-            <X size={14} />
-          </button>
-        </div>
-      ))}
-
-      <div
-        className="relative bg-white border-2 border-gray-200 hover:border-[#70AD47]"
-        style={{ borderLeftColor: color, borderLeftWidth: '4px' }}
-        onClick={() => setIsOpen(!isOpen)}
-      >
-        <div className="flex items-center p-2">
-          <input
-            type="text"
-            value={searchTerm}
-            onChange={(e) => {
-              setSearchTerm(e.target.value);
-              if (!isOpen) setIsOpen(true);
-            }}
-            placeholder={placeholder}
-            className="flex-1 outline-none text-sm"
-            onFocus={() => setIsOpen(true)}
-          />
-          <ChevronDown className="ml-2 h-3 w-3 text-gray-400" />
-        </div>
-
-        {isOpen && (
-          <div className="absolute z-[100] w-full mt-1 bg-white border-2 border-[#70AD47] shadow-lg max-h-48 overflow-auto">
-            {loading ? (
-              <div className="p-3 text-gray-500 text-center text-sm">
-                <Loader2 className="h-4 w-4 animate-spin mx-auto mb-1" />
-                Loading options...
-              </div>
-            ) : (
-              <>
-                {debouncedSearchTerm && (
-                  <div className="p-2 bg-gray-50 border-b text-xs text-gray-600">
-                    Showing {filteredOptions.length} results
-                  </div>
-                )}
-                {filteredOptions.map((option, index) => (
-                  <div
-                    key={index}
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      handleSelect(option);
-                    }}
-                    className="px-3 py-2 text-sm hover:bg-green-50 cursor-pointer"
-                  >
-                    {option}
-                  </div>
-                ))}
-              </>
-            )}
+            ))}
           </div>
         )}
       </div>
@@ -982,13 +770,6 @@ const ComplexPlaneChart = React.memo(({ data, showConnections, showLabels, selec
         .attr("stroke", "#ddd")
         .attr("stroke-width", 1)
         .attr("stroke-dasharray", r === 1 ? "0" : "3,3");
-
-      g.append("text")
-        .attr("x", 5)
-        .attr("y", -radius * r + 3)
-        .attr("font-size", "9px")
-        .attr("fill", "#666")
-        .text(`${r.toFixed(1)}`);
     });
 
     // Axes
@@ -1007,18 +788,6 @@ const ComplexPlaneChart = React.memo(({ data, showConnections, showLabels, selec
       .attr("y2", radius)
       .attr("stroke", "#999")
       .attr("stroke-width", 1);
-
-    // Angle lines
-    for (let angle = 0; angle < 360; angle += 30) {
-      const radian = angle * Math.PI / 180;
-      g.append("line")
-        .attr("x1", 0)
-        .attr("y1", 0)
-        .attr("x2", radius * Math.cos(radian))
-        .attr("y2", radius * Math.sin(radian))
-        .attr("stroke", "#eee")
-        .attr("stroke-width", 0.5);
-    }
 
     // Labels
     g.append("text")
@@ -1048,36 +817,6 @@ const ComplexPlaneChart = React.memo(({ data, showConnections, showLabels, selec
 
     if (allPoints.length === 0) return;
 
-    // Convert points to coordinates
-    const coordinates = allPoints.map(p => {
-      const angle = p.angle * Math.PI / 180;
-      return {
-        x: radius * p.magnitude * Math.cos(angle),
-        y: radius * p.magnitude * Math.sin(angle),
-        data: p
-      };
-    });
-
-    // Sort points by angle for smooth curve
-    coordinates.sort((a, b) => a.data.angle - b.data.angle);
-
-    // Connection smooth curve using cardinal spline
-    if (showConnections && coordinates.length > 2) {
-      const closedCoordinates = [...coordinates, coordinates[0]];
-
-      const line = d3Module.line()
-        .x(d => d.x)
-        .y(d => d.y)
-        .curve(d3Module.curveCardinalClosed.tension(0.5));
-
-      g.append("path")
-        .datum(closedCoordinates)
-        .attr("d", line)
-        .attr("fill", "rgba(74, 144, 226, 0.1)")
-        .attr("stroke", "#4a90e2")
-        .attr("stroke-width", 2);
-    }
-
     // Draw points
     allPoints.forEach((point, i) => {
       const angle = point.angle * Math.PI / 180;
@@ -1104,10 +843,6 @@ const ComplexPlaneChart = React.memo(({ data, showConnections, showLabels, selec
         .attr("stroke", "white")
         .attr("stroke-width", 2)
         .style("cursor", "pointer");
-
-      // Tooltip on hover
-      pointG.append("title")
-        .text(`${point.name}\nReal: ${point.real.toFixed(3)}\nImaginary: ${point.imaginary.toFixed(3)}\nMagnitude: ${point.magnitude.toFixed(3)}\nAngle: ${point.angle}°`);
 
       // Label
       if (showLabels && point.name) {
@@ -1141,15 +876,12 @@ const ComplexPlaneChart = React.memo(({ data, showConnections, showLabels, selec
   );
 });
 
-// Replace your entire KuramotoAnalysis component with this:
-
+// Kuramoto Analysis
 const KuramotoAnalysis = ({ data, n8nResults }) => {
   const svgRef = useRef(null);
-  const animationRef = useRef(null);
   const [orderParameter, setOrderParameter] = useState(0);
   const [coupling, setCoupling] = useState(0.5);
   const [isRunning, setIsRunning] = useState(false);
-  const [oscillators, setOscillators] = useState([]);
   const [d3Module, setD3Module] = useState(null);
 
   useEffect(() => {
@@ -1158,365 +890,14 @@ const KuramotoAnalysis = ({ data, n8nResults }) => {
     });
   }, []);
 
-  // Calculate coupling based on AI results
-  useEffect(() => {
-    if (!n8nResults) return;
-
-    // Adjust coupling based on urgency and confidence
-    let newCoupling = 0.5; // Default
-
-    if (n8nResults.urgency_level === 'EMERGENT') {
-      newCoupling = 0.2; // Low coupling - system in crisis
-    } else if (n8nResults.urgency_level === 'URGENT') {
-      newCoupling = 0.4; // Reduced coupling
-    } else if (n8nResults.urgency_level === 'SEMI-URGENT') {
-      newCoupling = 0.6; // Moderate coupling
-    } else {
-      newCoupling = 0.8; // Good coupling for routine cases
-    }
-
-    // Adjust based on confidence (higher confidence = more accurate coupling assessment)
-    const confidenceFactor = n8nResults.confidence || 0.5;
-    newCoupling = newCoupling * (0.7 + (confidenceFactor * 0.3)); // Scale by 70-100% based on confidence
-
-    // Check for critical findings
-    if (n8nResults.critical_findings?.red_flags?.length > 0) {
-      newCoupling *= 0.8; // Reduce coupling by 20% for critical findings
-    }
-
-    // Check for abnormal findings
-    if (n8nResults.abnormal_findings?.length > 2) {
-      newCoupling *= 0.9; // Reduce coupling by 10% for multiple abnormalities
-    }
-
-    setCoupling(Math.max(0.1, Math.min(1.5, newCoupling))); // Keep within reasonable bounds
-  }, [n8nResults]);
-
   const hasData = data && Object.keys(data).length > 0 && Object.values(data).flat().length > 0;
-
-  useEffect(() => {
-    if (!hasData) return;
-
-    let newOscillators = [];
-    Object.entries(data).forEach(([domain, points]) => {
-      if (Array.isArray(points)) {
-        points.forEach(point => {
-          // Adjust phase based on abnormal findings
-          let phaseAdjustment = 0;
-          let naturalFreqAdjustment = 0;
-
-          // Check if this data point is mentioned in abnormal findings
-          if (n8nResults?.abnormal_findings?.some(finding =>
-            finding.toLowerCase().includes(point.name.toLowerCase())
-          )) {
-            phaseAdjustment = Math.PI / 4; // Shift phase for abnormal findings
-            naturalFreqAdjustment = 0.2; // Increase frequency variation
-          }
-
-          // Check for critical symptoms
-          if (domain === 'symptoms' && n8nResults?.critical_findings?.critical_symptoms?.some(
-            symptom => symptom.symptom.toLowerCase().includes(point.name.toLowerCase())
-          )) {
-            phaseAdjustment += Math.PI / 6; // Additional phase shift for critical symptoms
-            naturalFreqAdjustment += 0.3;
-          }
-
-          newOscillators.push({
-            ...point,
-            phase: (point.angle * Math.PI / 180) + phaseAdjustment,
-            naturalFreq: 0.1 + (point.magnitude * 0.9) + naturalFreqAdjustment,
-            domain: domain,
-            isAbnormal: phaseAdjustment > 0
-          });
-        });
-      }
-    });
-    setOscillators(newOscillators);
-  }, [data, hasData, n8nResults]);
-
-  useEffect(() => {
-    if (!svgRef.current || oscillators.length === 0 || !d3Module) return;
-
-    const svg = d3Module.select(svgRef.current);
-    svg.selectAll("*").remove();
-
-    const width = 400;
-    const height = 400;
-    const radius = 150;
-    const centerX = width / 2;
-    const centerY = height / 2;
-
-    const g = svg.append("g")
-      .attr("transform", `translate(${centerX},${centerY})`);
-
-    // Background circle
-    g.append("circle")
-      .attr("r", radius)
-      .attr("fill", "none")
-      .attr("stroke", "#ddd")
-      .attr("stroke-width", 2);
-
-    // Kuramoto model simulation
-    const simulate = () => {
-      if (!isRunning) return;
-
-      const N = oscillators.length;
-      const newOscillators = oscillators.map((osc, i) => {
-        let sumSin = 0, sumCos = 0;
-
-        oscillators.forEach((other, j) => {
-          if (i !== j) {
-            sumSin += Math.sin(other.phase - osc.phase);
-            sumCos += Math.cos(other.phase - osc.phase);
-          }
-        });
-
-        const meanFieldPhase = Math.atan2(sumSin / N, sumCos / N);
-        const newPhase = osc.phase + 0.01 * (osc.naturalFreq + coupling * Math.sin(meanFieldPhase - osc.phase));
-
-        return {
-          ...osc,
-          phase: newPhase % (2 * Math.PI)
-        };
-      });
-
-      setOscillators(newOscillators);
-
-      // Calculate order parameter
-      let rSum = 0, iSum = 0;
-      newOscillators.forEach(osc => {
-        rSum += Math.cos(osc.phase);
-        iSum += Math.sin(osc.phase);
-      });
-      const r = Math.sqrt(rSum * rSum + iSum * iSum) / N;
-      setOrderParameter(r);
-
-      // Clear and redraw
-      g.selectAll(".oscillator").remove();
-      g.selectAll(".mean-field").remove();
-
-      // Draw mean field vector
-      if (r > 0.1) {
-        g.append("line")
-          .attr("class", "mean-field")
-          .attr("x1", 0)
-          .attr("y1", 0)
-          .attr("x2", radius * r * (rSum / N))
-          .attr("y2", radius * r * (iSum / N))
-          .attr("stroke", "#ff6b6b")
-          .attr("stroke-width", 3)
-          .attr("marker-end", "url(#arrowhead)");
-      }
-
-      // Draw oscillators
-      newOscillators.forEach(osc => {
-        const x = radius * Math.cos(osc.phase);
-        const y = radius * Math.sin(osc.phase);
-
-        g.append("circle")
-          .attr("class", "oscillator")
-          .attr("cx", x)
-          .attr("cy", y)
-          .attr("r", osc.isAbnormal ? 8 : 6)
-          .attr("fill", osc.isAbnormal ? "#e74c3c" : (osc.color || "#4a90e2"))
-          .attr("stroke", "white")
-          .attr("stroke-width", 2)
-          .attr("opacity", 0.8);
-      });
-
-      // Draw domain labels
-      const domainAngles = {};
-      newOscillators.forEach(osc => {
-        if (!domainAngles[osc.domain]) {
-          domainAngles[osc.domain] = [];
-        }
-        domainAngles[osc.domain].push(osc.phase);
-      });
-
-      Object.entries(domainAngles).forEach(([domain, phases]) => {
-        const avgPhase = phases.reduce((a, b) => a + b, 0) / phases.length;
-        const labelRadius = radius + 20;
-        const x = labelRadius * Math.cos(avgPhase);
-        const y = labelRadius * Math.sin(avgPhase);
-
-        g.append("text")
-          .attr("x", x)
-          .attr("y", y)
-          .attr("text-anchor", "middle")
-          .attr("font-size", "10px")
-          .attr("fill", "#666")
-          .text(domain.substring(0, 8));
-      });
-
-      animationRef.current = requestAnimationFrame(simulate);
-    };
-
-    // Arrow marker
-    svg.append("defs").append("marker")
-      .attr("id", "arrowhead")
-      .attr("markerWidth", 10)
-      .attr("markerHeight", 7)
-      .attr("refX", 9)
-      .attr("refY", 3.5)
-      .attr("orient", "auto")
-      .append("polygon")
-      .attr("points", "0 0, 10 3.5, 0 7")
-      .attr("fill", "#ff6b6b");
-
-    if (isRunning) {
-      simulate();
-    } else {
-      // Draw static state
-      g.selectAll(".oscillator").remove();
-      oscillators.forEach(osc => {
-        const x = radius * Math.cos(osc.phase);
-        const y = radius * Math.sin(osc.phase);
-
-        g.append("circle")
-          .attr("class", "oscillator")
-          .attr("cx", x)
-          .attr("cy", y)
-          .attr("r", osc.isAbnormal ? 8 : 6)
-          .attr("fill", osc.isAbnormal ? "#e74c3c" : (osc.color || "#4a90e2"))
-          .attr("stroke", "white")
-          .attr("stroke-width", 2);
-      });
-    }
-
-    return () => {
-      if (animationRef.current) {
-        cancelAnimationFrame(animationRef.current);
-      }
-    };
-  }, [oscillators, coupling, isRunning, d3Module]);
-
-  // AI-aware clinical interpretation
-  const getClinicalInterpretation = () => {
-    const actualCoupling = coupling;
-
-    // If we have AI results, provide more specific interpretation
-    if (n8nResults) {
-      if (actualCoupling < 0.3) {
-        return {
-          state: "Critical Desynchronization",
-          color: "#e74c3c",
-          interpretation: "Severe physiological disruption detected. Multiple systems showing independent dysfunction.",
-          clinicalSignificance: `Findings consistent with ${n8nResults.urgency_level} presentation. ${n8nResults.summary || "Critical state requiring immediate intervention."}`,
-          actionableInsights: n8nResults.recommendations?.slice(0, 4).map(r => `• ${r}`) || [
-            "• Immediate medical attention required",
-            "• Consider ICU admission",
-            "• Multi-system support indicated",
-            "• Serial monitoring essential"
-          ]
-        };
-      } else if (actualCoupling < 0.5) {
-        return {
-          state: "Moderate Desynchronization",
-          color: "#f39c12",
-          interpretation: "Significant physiological stress. Systems showing partial coordination loss.",
-          clinicalSignificance: `Consistent with: ${n8nResults.diagnoses?.[0] || "Acute illness"}. ${n8nResults.abnormal_findings?.length > 0 ? `Notable: ${n8nResults.abnormal_findings[0]}` : ""}`,
-          actionableInsights: n8nResults.recommendations?.slice(0, 3).map(r => `• ${r}`) || [
-            "• Close monitoring required",
-            "• Initiate treatment protocol",
-            "• Serial assessments recommended"
-          ]
-        };
-      } else if (actualCoupling < 0.7) {
-        return {
-          state: "Mild Disruption",
-          color: "#3498db",
-          interpretation: "Minor physiological perturbation. Most systems maintaining coordination.",
-          clinicalSignificance: `Presentation consistent with: ${n8nResults.diagnoses?.[0] || "condition"}. ${n8nResults.confidence > 0.7 ? "High diagnostic confidence." : "Moderate diagnostic confidence."}`,
-          actionableInsights: n8nResults.recommendations?.slice(0, 3).map(r => `• ${r}`) || [
-            "• Outpatient management appropriate",
-            "• Symptomatic treatment",
-            "• Follow-up as needed"
-          ]
-        };
-      } else {
-        return {
-          state: "Normal Synchronization",
-          color: "#27ae60",
-          interpretation: "Physiological systems well-coordinated. No significant disruption detected.",
-          clinicalSignificance: `Findings consistent with ${n8nResults.urgency_level === 'ROUTINE' ? 'stable condition' : 'mild presentation'}. ${n8nResults.diagnoses?.[0] || "No acute pathology identified."}`,
-          actionableInsights: [
-            "• Continue current management",
-            "• Routine follow-up appropriate",
-            "• Focus on preventive care",
-            "• Document baseline parameters"
-          ]
-        };
-      }
-    }
-
-    // Fallback to original interpretation if no AI results
-    if (actualCoupling < 0.3) {
-      return {
-        state: "Decoupled State",
-        color: "#e74c3c",
-        interpretation: "Low physiological integration. Body systems operating independently.",
-        clinicalSignificance: "May indicate: Shock states, multi-organ dysfunction, severe metabolic derangement, or medication effects disrupting normal feedback loops.",
-        actionableInsights: [
-          "• Evaluate for distributive shock or sepsis",
-          "• Check for metabolic acidosis/alkalosis",
-          "• Review medications affecting autonomic function",
-          "• Consider ICU-level monitoring"
-        ]
-      };
-    } else if (actualCoupling < 0.7) {
-      return {
-        state: "Partial Synchronization",
-        color: "#f39c12",
-        interpretation: "Moderate physiological coupling. Some systems coordinating while others remain independent.",
-        clinicalSignificance: "Typical in: Compensated disease states, early decompensation, recovery phase, or therapeutic intervention effects.",
-        actionableInsights: [
-          "• Monitor trend - improving or worsening?",
-          "• Optimize current therapies",
-          "• Watch for decompensation signs",
-          "• Consider serial assessments"
-        ]
-      };
-    } else if (actualCoupling < 1.2) {
-      return {
-        state: "Healthy Synchronization",
-        color: "#27ae60",
-        interpretation: "Optimal physiological integration. Body systems working in coordinated harmony.",
-        clinicalSignificance: "Indicates: Normal homeostasis, effective compensation mechanisms, good therapeutic response, or stable chronic disease.",
-        actionableInsights: [
-          "• Continue current management",
-          "• Focus on preventive measures",
-          "• Document baseline for future comparison",
-          "• Consider discharge planning if acute"
-        ]
-      };
-    } else {
-      return {
-        state: "Hyper-synchronization",
-        color: "#9b59b6",
-        interpretation: "Excessive coupling. Systems locked in rigid patterns with reduced adaptability.",
-        clinicalSignificance: "Concerning for: Autonomic dysfunction, panic/anxiety states, medication toxicity, or pre-seizure states.",
-        actionableInsights: [
-          "• Evaluate for anxiety/panic disorder",
-          "• Check for stimulant use/toxicity",
-          "• Consider autonomic testing",
-          "• Review for prodromal symptoms"
-        ]
-      };
-    }
-  };
-
-  const interpretation = getClinicalInterpretation();
 
   if (!hasData || !d3Module) {
     return (
       <div className="bg-white border-2 border-gray-300 p-4">
         <h3 className="text-sm font-bold mb-3">Kuramoto Synchronization Analysis</h3>
         <div className="h-64 flex items-center justify-center text-gray-500 text-sm">
-          {!d3Module ? (
-            <Loader2 className="h-8 w-8 animate-spin text-gray-400" />
-          ) : (
-            "No patient data available. Enter clinical data to begin analysis."
-          )}
+          No patient data available
         </div>
       </div>
     );
@@ -1525,39 +906,12 @@ const KuramotoAnalysis = ({ data, n8nResults }) => {
   return (
     <div className="bg-white border-2 border-gray-300 p-4">
       <h3 className="text-sm font-bold mb-3">Kuramoto Synchronization Analysis</h3>
-      <svg ref={svgRef} width={400} height={400} className="border border-gray-200" />
+      <svg ref={svgRef} width={400} height={300} className="border border-gray-200" />
       <div className="mt-3 space-y-2">
         <div className="flex items-center justify-between">
           <span className="text-xs font-medium">Order Parameter: {orderParameter.toFixed(3)}</span>
           <span className="text-xs text-gray-500">(0 = chaos, 1 = sync)</span>
         </div>
-        <div className="flex items-center justify-between">
-          <span className="text-xs font-medium">Total Oscillators: {oscillators.length}</span>
-          <span className="text-xs text-gray-500">
-            {oscillators.filter(o => o.isAbnormal).length > 0 &&
-              `(${oscillators.filter(o => o.isAbnormal).length} abnormal)`
-            }
-          </span>
-        </div>
-        <div className="flex items-center gap-2">
-          <label className="text-xs font-medium">Coupling Strength:</label>
-          <input
-            type="range"
-            min="0"
-            max="2"
-            step="0.1"
-            value={coupling}
-            onChange={(e) => setCoupling(parseFloat(e.target.value))}
-            className="flex-1"
-            disabled={n8nResults ? true : false} // Disable manual adjustment when AI results are present
-          />
-          <span className="text-xs w-8">{coupling.toFixed(1)}</span>
-        </div>
-        {n8nResults && (
-          <div className="text-xs text-gray-600 italic">
-            *Coupling auto-adjusted based on AI diagnosis
-          </div>
-        )}
         <button
           onClick={() => setIsRunning(!isRunning)}
           className={`w-full py-2 text-xs font-bold rounded ${
@@ -1567,50 +921,12 @@ const KuramotoAnalysis = ({ data, n8nResults }) => {
           {isRunning ? 'Stop Simulation' : 'Start Simulation'}
         </button>
       </div>
-
-      {/* Clinical Interpretation Box */}
-      <div className={`mt-4 p-4 border-2 rounded-lg`} style={{ borderColor: interpretation.color, backgroundColor: `${interpretation.color}15` }}>
-        <div className="flex items-center justify-between mb-2">
-          <h4 className="text-sm font-bold flex items-center gap-2">
-            <div className="w-3 h-3 rounded-full" style={{ backgroundColor: interpretation.color }}></div>
-            {interpretation.state}
-          </h4>
-          <span className="text-xs text-gray-600">K = {coupling.toFixed(1)}</span>
-        </div>
-
-        <div className="space-y-2 text-xs">
-          <div>
-            <span className="font-semibold">Interpretation:</span>
-            <p className="text-gray-700 mt-1">{interpretation.interpretation}</p>
-          </div>
-
-          <div>
-            <span className="font-semibold">Clinical Significance:</span>
-            <p className="text-gray-700 mt-1">{interpretation.clinicalSignificance}</p>
-          </div>
-
-          <div>
-            <span className="font-semibold">Actionable Insights:</span>
-            <div className="mt-1 text-gray-700">
-              {interpretation.actionableInsights.map((insight, idx) => (
-                <div key={idx} className="ml-2">{insight}</div>
-              ))}
-            </div>
-          </div>
-        </div>
-
-        <div className="mt-3 p-2 bg-gray-100 rounded text-xs">
-          <span className="font-semibold">Clinical Note:</span> The coupling constant (K) represents the strength of interaction between physiological systems.
-          {n8nResults && " This value has been automatically adjusted based on the AI diagnosis and urgency level."}
-        </div>
-      </div>
     </div>
   );
 };
 
-// Replace your entire BayesianAnalysis component with this:
-
-const BayesianAnalysis = ({ patientData, processedData, n8nResults }) => {
+// Bayesian Analysis
+const BayesianAnalysis = ({ n8nResults }) => {
   const svgRef = useRef(null);
   const [d3Module, setD3Module] = useState(null);
 
@@ -1620,225 +936,14 @@ const BayesianAnalysis = ({ patientData, processedData, n8nResults }) => {
     });
   }, []);
 
-  // Use AI diagnoses if available
   const hasData = n8nResults && n8nResults.diagnoses && n8nResults.diagnoses.length > 0;
-
-  const posteriorProbabilities = useMemo(() => {
-    if (!hasData) return [];
-
-    // Extract diagnoses from n8n results
-    const aiDiagnoses = n8nResults.diagnoses || [];
-    const confidence = n8nResults.confidence || 0.5;
-
-    // Convert AI diagnoses to probability format
-    const probabilities = aiDiagnoses.map((diagnosis, index) => {
-      // Extract disease name and ICD code
-      const match = diagnosis.match(/^(.+?)\s*\(ICD10:\s*(.+?)\)$/);
-      const diseaseName = match ? match[1] : diagnosis;
-      const icdCode = match ? match[2] : '';
-
-      // Calculate probability distribution
-      // Primary diagnosis gets highest probability
-      let baseProbability;
-      if (index === 0) {
-        baseProbability = confidence * 0.5; // Primary gets 50% of confidence
-      } else if (index === 1) {
-        baseProbability = confidence * 0.25; // Secondary gets 25%
-      } else {
-        // Remaining diagnoses share the rest
-        baseProbability = confidence * (0.25 / (aiDiagnoses.length - 2));
-      }
-
-      return {
-        disease: diseaseName,
-        icdCode: icdCode,
-        probability: baseProbability,
-        likelihood: 1 + (confidence * 2), // Higher confidence = higher likelihood
-        prior: 0.1, // Assume uniform prior
-        isAIDiagnosis: true
-      };
-    });
-
-    // Add differential diagnoses if provided in recommendations
-    if (n8nResults.recommendations) {
-      n8nResults.recommendations.forEach(rec => {
-        if (rec.toLowerCase().includes('rule out') || rec.toLowerCase().includes('consider')) {
-          const diseaseMatch = rec.match(/(?:rule out|consider)\s+(.+?)(?:\s|$)/i);
-          if (diseaseMatch && probabilities.length < 5) {
-            probabilities.push({
-              disease: diseaseMatch[1],
-              icdCode: '',
-              probability: confidence * 0.05,
-              likelihood: 0.5,
-              prior: 0.05,
-              isDifferential: true
-            });
-          }
-        }
-      });
-    }
-
-    // Normalize probabilities to sum to 1
-    const totalProb = probabilities.reduce((sum, p) => sum + p.probability, 0);
-    if (totalProb > 0) {
-      return probabilities.map(p => ({
-        ...p,
-        probability: p.probability / totalProb
-      }));
-    }
-
-    return probabilities;
-  }, [n8nResults, hasData]);
-
-  useEffect(() => {
-    if (!svgRef.current || posteriorProbabilities.length === 0 || !d3Module) return;
-
-    const svg = d3Module.select(svgRef.current);
-    svg.selectAll("*").remove();
-
-    // Adjusted margins to prevent overflow
-    const margin = { top: 40, right: 40, bottom: 120, left: 60 };
-    const width = 450 - margin.left - margin.right;
-    const height = 350 - margin.top - margin.bottom;
-
-    const g = svg.append("g")
-      .attr("transform", `translate(${margin.left},${margin.top})`);
-
-    const x = d3Module.scaleBand()
-      .range([0, width])
-      .padding(0.1)
-      .domain(posteriorProbabilities.map(d => d.disease));
-
-    const y = d3Module.scaleLinear()
-      .range([height, 0])
-      .domain([0, Math.max(...posteriorProbabilities.map(d => d.probability)) * 1.1]);
-
-    // Color gradients for AI diagnoses
-    const gradientAI = svg.append("defs")
-      .append("linearGradient")
-      .attr("id", "bar-gradient-ai")
-      .attr("x1", "0%").attr("y1", "0%")
-      .attr("x2", "0%").attr("y2", "100%");
-
-    gradientAI.append("stop")
-      .attr("offset", "0%")
-      .attr("stop-color", "#e74c3c");
-
-    gradientAI.append("stop")
-      .attr("offset", "100%")
-      .attr("stop-color", "#c0392b");
-
-    // Bars
-    g.selectAll(".bar")
-      .data(posteriorProbabilities)
-      .enter().append("rect")
-      .attr("class", "bar")
-      .attr("x", d => x(d.disease))
-      .attr("width", x.bandwidth())
-      .attr("y", height)
-      .attr("height", 0)
-      .attr("fill", (d, i) => {
-        if (i === 0) return '#e74c3c'; // Primary - red
-        if (i === 1) return '#f39c12'; // Secondary - orange
-        if (d.isDifferential) return '#95a5a6'; // Differential - gray
-        return '#3498db'; // Others - blue
-      })
-      .transition()
-      .duration(750)
-      .attr("y", d => y(d.probability))
-      .attr("height", d => height - y(d.probability));
-
-    // Value labels on bars
-    g.selectAll(".text")
-      .data(posteriorProbabilities)
-      .enter().append("text")
-      .attr("x", d => x(d.disease) + x.bandwidth() / 2)
-      .attr("y", d => y(d.probability) - 5)
-      .attr("text-anchor", "middle")
-      .attr("font-size", "10px")
-      .attr("font-weight", "bold")
-      .text(d => (d.probability * 100).toFixed(1) + '%');
-
-    // ICD codes below bars (if present)
-    g.selectAll(".icd")
-      .data(posteriorProbabilities.filter(d => d.icdCode))
-      .enter().append("text")
-      .attr("x", d => x(d.disease) + x.bandwidth() / 2)
-      .attr("y", height + 10)
-      .attr("text-anchor", "middle")
-      .attr("font-size", "8px")
-      .attr("fill", "#666")
-      .text(d => d.icdCode);
-
-    // X axis
-    g.append("g")
-      .attr("transform", `translate(0,${height})`)
-      .call(d3Module.axisBottom(x))
-      .selectAll("text")
-      .attr("transform", "rotate(-45)")
-      .style("text-anchor", "end")
-      .attr("dx", "-.8em")
-      .attr("dy", ".15em")
-      .attr("font-size", "10px");
-
-    // Y axis
-    g.append("g")
-      .call(d3Module.axisLeft(y).ticks(5).tickFormat(d => (d * 100).toFixed(0) + '%'));
-
-    // Title
-    svg.append("text")
-      .attr("x", width / 2 + margin.left)
-      .attr("y", 20)
-      .attr("text-anchor", "middle")
-      .attr("font-size", "14px")
-      .attr("font-weight", "bold")
-      .text("AI Diagnostic Probability Analysis");
-
-    // Confidence indicator
-    svg.append("text")
-      .attr("x", width + margin.left - 10)
-      .attr("y", height + margin.top + 40)
-      .attr("text-anchor", "end")
-      .attr("font-size", "11px")
-      .attr("fill", "#666")
-      .text(`AI Confidence: ${((n8nResults.confidence || 0) * 100).toFixed(0)}%`);
-
-    // Legend
-    const legend = svg.append("g")
-      .attr("transform", `translate(${width + margin.left - 80}, 40)`);
-
-    const legendData = [
-      { color: '#e74c3c', label: 'Primary' },
-      { color: '#f39c12', label: 'Secondary' },
-      { color: '#3498db', label: 'Other' }
-    ];
-
-    legendData.forEach((item, i) => {
-      legend.append("rect")
-        .attr("y", i * 20)
-        .attr("width", 15)
-        .attr("height", 15)
-        .attr("fill", item.color);
-
-      legend.append("text")
-        .attr("x", 20)
-        .attr("y", i * 20 + 12)
-        .attr("font-size", "10px")
-        .text(item.label);
-    });
-
-  }, [posteriorProbabilities, d3Module, n8nResults]);
 
   if (!hasData || !d3Module) {
     return (
       <div className="bg-white border-2 border-gray-300 p-4">
-        <h3 className="text-sm font-bold mb-3">AI Diagnostic Probability Analysis</h3>
+        <h3 className="text-sm font-bold mb-3">Diagnostic Probability Analysis</h3>
         <div className="h-64 flex items-center justify-center text-gray-500 text-sm">
-          {!d3Module ? (
-            <Loader2 className="h-8 w-8 animate-spin text-gray-400" />
-          ) : (
-            "Waiting for AI diagnosis results..."
-          )}
+          Waiting for diagnosis results...
         </div>
       </div>
     );
@@ -1846,180 +951,32 @@ const BayesianAnalysis = ({ patientData, processedData, n8nResults }) => {
 
   return (
     <div className="bg-white border-2 border-gray-300 p-4">
-      <h3 className="text-sm font-bold mb-3">AI Diagnostic Probability Analysis</h3>
-      <svg ref={svgRef} width={450} height={350} />
+      <h3 className="text-sm font-bold mb-3">Diagnostic Probability Analysis</h3>
+      <svg ref={svgRef} width={450} height={300} />
       <div className="mt-4 space-y-2 text-xs">
-        <div className="font-semibold">Diagnostic Breakdown:</div>
-        {posteriorProbabilities.map((result, idx) => (
+        <div className="font-semibold">Diagnostic Results:</div>
+        {n8nResults.diagnoses.map((diagnosis, idx) => (
           <div key={idx} className="flex justify-between items-center p-2 bg-gray-50 rounded">
-            <span className="font-medium">
-              {idx + 1}. {result.disease}
-              {result.icdCode && <span className="text-gray-500 ml-1">(ICD10: {result.icdCode})</span>}
-            </span>
-            <div className="text-right">
-              <span className="font-bold">{(result.probability * 100).toFixed(1)}%</span>
-              {result.isDifferential && (
-                <span className="text-xs text-gray-500 ml-2">(Differential)</span>
-              )}
-            </div>
+            <span className="font-medium">{idx + 1}. {diagnosis}</span>
           </div>
         ))}
-
-        {n8nResults.urgency_level && (
-          <div className={`mt-3 p-2 rounded text-center font-semibold ${
-            n8nResults.urgency_level === 'EMERGENT' ? 'bg-red-100 text-red-800' :
-            n8nResults.urgency_level === 'URGENT' ? 'bg-orange-100 text-orange-800' :
-            n8nResults.urgency_level === 'SEMI-URGENT' ? 'bg-yellow-100 text-yellow-800' :
-            'bg-green-100 text-green-800'
-          }`}>
-            Urgency: {n8nResults.urgency_level}
-          </div>
-        )}
       </div>
     </div>
   );
 };
 
-// Replace the N8nResultsDisplay component with this improved version:
+// N8n Results Display
 const N8nResultsDisplay = ({ results }) => {
   const [displayFormat, setDisplayFormat] = useState('bullets');
 
   if (!results) return null;
-
-  const renderBulletFormat = () => {
-    return (
-      <div className="space-y-4">
-        {results.urgency_level && (
-          <div className={`p-3 rounded ${
-            results.urgency_level === 'EMERGENT' ? 'bg-red-100 border-red-300' :
-            results.urgency_level === 'URGENT' ? 'bg-orange-100 border-orange-300' :
-            results.urgency_level === 'SEMI-URGENT' ? 'bg-yellow-100 border-yellow-300' :
-            'bg-green-100 border-green-300'
-          } border`}>
-            <h4 className="font-semibold text-sm mb-1">Urgency Level: {results.urgency_level}</h4>
-            {results.critical_findings?.triage_recommendation && (
-              <p className="text-sm">{results.critical_findings.triage_recommendation}</p>
-            )}
-          </div>
-        )}
-
-        {results.summary && (
-          <div className="bg-blue-50 p-3 rounded">
-            <h4 className="font-semibold text-sm mb-1">Summary:</h4>
-            <p className="text-sm text-gray-700">{results.summary}</p>
-          </div>
-        )}
-
-        {results.diagnoses && results.diagnoses.length > 0 && (
-          <div>
-            <h4 className="font-semibold text-sm mb-2">Suggested Diagnoses:</h4>
-            <ul className="list-disc list-inside space-y-1">
-              {results.diagnoses.map((diagnosis, idx) => (
-                <li key={idx} className="text-sm text-gray-700">
-                  {typeof diagnosis === 'object' ?
-                    `${diagnosis.description || diagnosis.condition} ${diagnosis.icd10_code ? `(${diagnosis.icd10_code})` : ''} - ${(diagnosis.probability * 100 || diagnosis.confidence * 100 || 0).toFixed(0)}% confidence` :
-                    diagnosis
-                  }
-                </li>
-              ))}
-            </ul>
-          </div>
-        )}
-
-        {results.recommendations && results.recommendations.length > 0 && (
-          <div>
-            <h4 className="font-semibold text-sm mb-2">Recommendations:</h4>
-            <ul className="list-disc list-inside space-y-1">
-              {results.recommendations.map((rec, idx) => (
-                <li key={idx} className="text-sm text-gray-700">{rec}</li>
-              ))}
-            </ul>
-          </div>
-        )}
-
-        {results.labs_to_order && results.labs_to_order.length > 0 && (
-          <div>
-            <h4 className="font-semibold text-sm mb-2">Suggested Labs:</h4>
-            <ul className="list-disc list-inside space-y-1">
-              {results.labs_to_order.map((lab, idx) => (
-                <li key={idx} className="text-sm text-gray-700">{lab}</li>
-              ))}
-            </ul>
-          </div>
-        )}
-
-        {results.confidence !== undefined && (
-          <div className="flex items-center gap-2">
-            <span className="text-sm font-semibold">Confidence:</span>
-            <div className="flex-1 bg-gray-200 rounded-full h-4">
-              <div
-                className="bg-blue-500 h-4 rounded-full"
-                style={{ width: `${results.confidence * 100}%` }}
-              />
-            </div>
-            <span className="text-sm">{(results.confidence * 100).toFixed(0)}%</span>
-          </div>
-        )}
-      </div>
-    );
-  };
-
-  const renderTextFormat = () => {
-    return (
-      <div className="prose prose-sm max-w-none space-y-4">
-        {results.summary && (
-          <div>
-            <h4 className="font-semibold">Clinical Summary</h4>
-            <p className="text-gray-700">{results.summary}</p>
-          </div>
-        )}
-
-        {results.diagnostic_report && (
-          <div>
-            <h4 className="font-semibold">Diagnostic Report</h4>
-            {results.diagnostic_report.clinical_reasoning && (
-              <p className="text-gray-700">{results.diagnostic_report.clinical_reasoning}</p>
-            )}
-            {results.diagnostic_report.primary_diagnosis && (
-              <p className="text-gray-700 mt-2">
-                <strong>Primary Diagnosis:</strong> {results.diagnostic_report.primary_diagnosis.description}
-                ({results.diagnostic_report.primary_diagnosis.icd10_code})
-              </p>
-            )}
-          </div>
-        )}
-
-        {results.critical_findings && results.critical_findings.red_flags && (
-          <div>
-            <h4 className="font-semibold text-red-600">Critical Findings</h4>
-            <ul className="list-disc list-inside">
-              {results.critical_findings.red_flags.map((flag, idx) => (
-                <li key={idx} className="text-red-700">{flag}</li>
-              ))}
-            </ul>
-          </div>
-        )}
-      </div>
-    );
-  };
-
-  const renderJsonFormat = () => {
-    return (
-      <pre className="text-xs overflow-auto bg-gray-50 p-3 rounded">
-        {JSON.stringify(results, null, 2)}
-      </pre>
-    );
-  };
 
   return (
     <div className="bg-white shadow rounded-lg p-4">
       <div className="flex justify-between items-center mb-4">
         <h2 className="text-lg font-bold flex items-center gap-2">
           <BarChart3 size={18} />
-          AI Analysis Results
-          <span className="text-xs text-gray-500 font-normal">
-            {results.timestamp ? new Date(results.timestamp).toLocaleTimeString() : ''}
-          </span>
+          Analysis Results
         </h2>
         <div className="flex gap-2">
           <button
@@ -2029,14 +986,6 @@ const N8nResultsDisplay = ({ results }) => {
             }`}
           >
             Summary
-          </button>
-          <button
-            onClick={() => setDisplayFormat('text')}
-            className={`px-3 py-1 text-xs rounded ${
-              displayFormat === 'text' ? 'bg-blue-500 text-white' : 'bg-gray-200'
-            }`}
-          >
-            Report
           </button>
           <button
             onClick={() => setDisplayFormat('json')}
@@ -2050,9 +999,55 @@ const N8nResultsDisplay = ({ results }) => {
       </div>
 
       <div className="bg-gray-50 p-4 rounded">
-        {displayFormat === 'bullets' && renderBulletFormat()}
-        {displayFormat === 'text' && renderTextFormat()}
-        {displayFormat === 'json' && renderJsonFormat()}
+        {displayFormat === 'bullets' ? (
+          <div className="space-y-4">
+            {results.summary && (
+              <div className="bg-blue-50 p-3 rounded">
+                <h4 className="font-semibold text-sm mb-1">Summary:</h4>
+                <p className="text-sm text-gray-700">{results.summary}</p>
+              </div>
+            )}
+
+            {results.diagnoses && results.diagnoses.length > 0 && (
+              <div>
+                <h4 className="font-semibold text-sm mb-2">Diagnoses:</h4>
+                <ul className="list-disc list-inside space-y-1">
+                  {results.diagnoses.map((diagnosis, idx) => (
+                    <li key={idx} className="text-sm text-gray-700">{diagnosis}</li>
+                  ))}
+                </ul>
+              </div>
+            )}
+
+            {results.recommendations && results.recommendations.length > 0 && (
+              <div>
+                <h4 className="font-semibold text-sm mb-2">Recommendations:</h4>
+                <ul className="list-disc list-inside space-y-1">
+                  {results.recommendations.map((rec, idx) => (
+                    <li key={idx} className="text-sm text-gray-700">{rec}</li>
+                  ))}
+                </ul>
+              </div>
+            )}
+
+            {results.confidence !== undefined && (
+              <div className="flex items-center gap-2">
+                <span className="text-sm font-semibold">Confidence:</span>
+                <div className="flex-1 bg-gray-200 rounded-full h-4">
+                  <div
+                    className="bg-blue-500 h-4 rounded-full"
+                    style={{ width: `${results.confidence * 100}%` }}
+                  />
+                </div>
+                <span className="text-sm">{(results.confidence * 100).toFixed(0)}%</span>
+              </div>
+            )}
+          </div>
+        ) : (
+          <pre className="text-xs overflow-auto bg-gray-50 p-3 rounded">
+            {JSON.stringify(results, null, 2)}
+          </pre>
+        )}
       </div>
     </div>
   );
@@ -2093,31 +1088,18 @@ const DiagnoVeraEnterpriseInterface = () => {
   const [isProcessing, setIsProcessing] = useState(false);
   const [error, setError] = useState(null);
 
-  // Connect to WebSocket on mount
   useEffect(() => {
-    console.log('Home page mounted');
-    console.log('Backend URL:', config.BACKEND_URL);
-    
     const connectTimer = setTimeout(() => {
       try {
         websocketService.connect();
-
         websocketService.onN8nUpdate((data) => {
-          console.log('Received n8n update:', data);
           setN8nResults(data);
           setN8nStatus('connected');
-
-          if (data.diagnoses) {
-            setSuspectedDiagnoses(prev => [...new Set([...prev, ...data.diagnoses])]);
-          }
         });
-
-        websocketService.onConnectionError((error) => {
-          console.warn('WebSocket connection failed, continuing in offline mode');
+        websocketService.onConnectionError(() => {
           setN8nStatus('offline');
         });
       } catch (error) {
-        console.error('WebSocket setup error:', error);
         setN8nStatus('offline');
       }
     }, 100);
@@ -2126,22 +1108,6 @@ const DiagnoVeraEnterpriseInterface = () => {
       clearTimeout(connectTimer);
       websocketService.disconnect();
     };
-  }, []);
-
-  // Preload data files on mount
-  useEffect(() => {
-    const criticalFiles = [
-      'symptoms',
-      'medications',
-      'allergies',
-      'past_medical_history',
-      'past_surgical_history',
-      'vital_signs',
-      'laboratory_tests',
-      'imaging_studies',
-      'diagnoses'
-    ];
-    preloadDataFiles(criticalFiles);
   }, []);
 
   const updateDemographics = useCallback((field, value) => {
@@ -2182,7 +1148,6 @@ const DiagnoVeraEnterpriseInterface = () => {
     }));
   }, []);
 
-  // Process data into complex plane format
   const processDataToComplexPlane = useCallback(() => {
     const complexData = {
       symptoms: [],
@@ -2222,119 +1187,69 @@ const DiagnoVeraEnterpriseInterface = () => {
       }
     });
 
-    // Process labs
-    patientData.objective.laboratory.forEach((lab, idx) => {
-      if (lab.value) {
-        const angle = 180 + (idx * 25);
-        const magnitude = 0.6 + Math.random() * 0.4;
-        complexData.labs.push({
-          name: `${lab.name}: ${lab.value} ${lab.unit}`,
-          real: magnitude * Math.cos(angle * Math.PI / 180),
-          imaginary: magnitude * Math.sin(angle * Math.PI / 180),
-          magnitude,
-          angle,
-          color: '#27ae60'
-        });
-      }
-    });
-
-    // Process medications
-    patientData.subjective.medications.forEach((med, idx) => {
-      const angle = 270 + (idx * 15);
-      const magnitude = 0.5 + Math.random() * 0.5;
-      complexData.medications.push({
-        name: med,
-        real: magnitude * Math.cos(angle * Math.PI / 180),
-        imaginary: magnitude * Math.sin(angle * Math.PI / 180),
-        magnitude,
-        angle,
-        color: '#f39c12'
-      });
-    });
-
     setProcessedData(complexData);
   }, [patientData]);
 
-  // Process data when patient data changes
   useEffect(() => {
     processDataToComplexPlane();
   }, [patientData, processDataToComplexPlane]);
 
-// Replace the submitToN8n function (around line 1971) with this:
-const submitToN8n = async () => {
-  setIsProcessing(true);
-  setError(null);
-  setN8nStatus('processing');
+  const submitToN8n = async () => {
+    setIsProcessing(true);
+    setError(null);
+    setN8nStatus('processing');
 
-  try {
-    // Ensure we have at least some clinical data
-    if (!patientData.subjective.chiefComplaint &&
-        (!patientData.subjective.symptoms || patientData.subjective.symptoms.length === 0)) {
-      setError('Please enter a chief complaint or select at least one symptom');
-      setN8nStatus('error');
-      return;
-    }
+    try {
+      if (!patientData.subjective.chiefComplaint &&
+          (!patientData.subjective.symptoms || patientData.subjective.symptoms.length === 0)) {
+        setError('Please enter a chief complaint or select at least one symptom');
+        setN8nStatus('error');
+        return;
+      }
 
-    console.log('Patient data before sending:', patientData);
-    console.log('Processed data:', processedData);
+      const result = await n8nService.sendToN8n(patientData, processedData);
 
-    // USE THE N8N SERVICE HERE - THIS IS THE KEY CHANGE
-    const result = await n8nService.sendToN8n(patientData, processedData);
-    console.log('n8n response:', result);
+      if (result.error) {
+        throw new Error(result.message || 'Error from n8n workflow');
+      }
 
-    // Handle error responses from the service
-    if (result.error) {
-      throw new Error(result.message || 'Error from n8n workflow');
-    }
-
-    // Set the results
-    setN8nResults({
-      diagnoses: result.diagnoses || result.diagnosis_list || [],
-      recommendations: result.recommendations || [],
-      labs_to_order: result.labs_to_order || [],
-      confidence: result.confidence || 0,
-      summary: result.summary || 'Analysis complete',
-      urgency_level: result.urgency_level || 'ROUTINE',
-      critical_findings: result.critical_findings || {},
-      diagnostic_report: result.diagnostic_report || {},
-      timestamp: new Date().toISOString()
-    });
-
-    setN8nStatus('completed');
-
-    // Update suspected diagnoses if we got any
-    if (result.diagnoses && result.diagnoses.length > 0) {
-      setSuspectedDiagnoses(prev => {
-        const newDiagnoses = result.diagnoses.filter(d => !prev.includes(d));
-        return [...prev, ...newDiagnoses];
-      });
-    }
-
-  } catch (err) {
-    console.error('Error submitting to n8n:', err);
-    setError(`Failed to analyze: ${err.message}`);
-    setN8nStatus('error');
-
-    // Provide mock results for testing if n8n fails
-    if (patientData.subjective.symptoms.length > 0) {
       setN8nResults({
-        diagnoses: ['Differential diagnosis pending', 'Further evaluation needed'],
-        recommendations: [
-          'Complete physical examination',
-          'Review vital signs trend',
-          'Consider additional testing'
-        ],
-        labs_to_order: ['CBC', 'BMP', 'Urinalysis'],
-        confidence: 0.5,
-        summary: 'Analysis completed locally due to connection error',
-        urgency_level: 'ROUTINE',
+        diagnoses: result.diagnoses || [],
+        recommendations: result.recommendations || [],
+        labs_to_order: result.labs_to_order || [],
+        confidence: result.confidence || 0,
+        summary: result.summary || 'Analysis complete',
+        urgency_level: result.urgency_level || 'ROUTINE',
         timestamp: new Date().toISOString()
       });
+
+      setN8nStatus('completed');
+
+    } catch (err) {
+      console.error('Error submitting to n8n:', err);
+      setError(`Failed to analyze: ${err.message}`);
+      setN8nStatus('error');
+
+      // Provide mock results for testing
+      if (patientData.subjective.symptoms.length > 0) {
+        setN8nResults({
+          diagnoses: ['Differential diagnosis pending', 'Further evaluation needed'],
+          recommendations: [
+            'Complete physical examination',
+            'Review vital signs trend',
+            'Consider additional testing'
+          ],
+          labs_to_order: ['CBC', 'BMP'],
+          confidence: 0.5,
+          summary: 'Analysis completed locally due to connection error',
+          urgency_level: 'ROUTINE',
+          timestamp: new Date().toISOString()
+        });
+      }
+    } finally {
+      setIsProcessing(false);
     }
-  } finally {
-    setIsProcessing(false);
-  }
-};
+  };
 
   const resetForm = () => {
     setPatientData({
@@ -2377,7 +1292,6 @@ const submitToN8n = async () => {
 
     const dataStr = JSON.stringify(exportObj, null, 2);
     const dataUri = 'data:application/json;charset=utf-8,'+ encodeURIComponent(dataStr);
-
     const exportFileDefaultName = `diagnovera-patient-${patientData.demographics.mrn || 'unknown'}-${new Date().toISOString().split('T')[0]}.json`;
 
     const linkElement = document.createElement('a');
@@ -2390,97 +1304,88 @@ const submitToN8n = async () => {
     <div className="min-h-screen bg-gray-100 p-4">
       <div className="max-w-7xl mx-auto">
         {/* Header */}
-<div className="bg-gradient-to-r from-slate-900 via-blue-900 to-slate-900 shadow-2xl rounded-lg p-4 mb-4 border-t-4 border-blue-500">
-  <div className="flex justify-between items-center">
-    <div className="flex items-center gap-4">
-      <div className="relative">
-        {/* Epic DVERA Logo Design */}
-        <div className="flex items-baseline gap-1">
-          <span className="text-4xl font-black text-white tracking-wider">
-            DVERA
-          </span>
-          <span className="text-xs text-blue-400 font-semibold align-super">
-            ™
-          </span>
+        <div className="bg-gradient-to-r from-slate-900 via-blue-900 to-slate-900 shadow-2xl rounded-lg p-4 mb-4 border-t-4 border-blue-500">
+          <div className="flex justify-between items-center">
+            <div className="flex items-center gap-4">
+              <div className="relative">
+                <div className="flex items-baseline gap-1">
+                  <span className="text-4xl font-black text-white tracking-wider">
+                    DIAGNOVERA
+                  </span>
+                  <span className="text-xs text-blue-400 font-semibold align-super">
+                    ™
+                  </span>
+                </div>
+                <div className="absolute -bottom-1 left-0 w-full h-1 bg-gradient-to-r from-blue-500 via-cyan-400 to-blue-500 rounded-full animate-pulse"></div>
+              </div>
+
+              <div className="flex flex-col">
+                <span className="text-xs text-blue-300 font-medium uppercase tracking-widest">
+                  Clinical Decision Support System
+                </span>
+                <span className="text-xs text-gray-400">
+                  Advanced Diagnostic Analysis Platform
+                </span>
+              </div>
+            </div>
+
+            <div className="flex items-center gap-4">
+              <div className="flex items-center gap-2 bg-slate-800/50 px-3 py-1.5 rounded-lg border border-slate-700">
+                {n8nStatus === 'connected' ? (
+                  <div className="flex items-center gap-2">
+                    <div className="w-2 h-2 bg-green-500 rounded-full animate-pulse"></div>
+                    <Wifi className="h-4 w-4 text-green-500" />
+                  </div>
+                ) : n8nStatus === 'offline' ? (
+                  <div className="flex items-center gap-2">
+                    <div className="w-2 h-2 bg-yellow-500 rounded-full"></div>
+                    <WifiOff className="h-4 w-4 text-yellow-500" />
+                  </div>
+                ) : (
+                  <div className="flex items-center gap-2">
+                    <div className="w-2 h-2 bg-red-500 rounded-full"></div>
+                    <WifiOff className="h-4 w-4 text-red-500" />
+                  </div>
+                )}
+                <span className="text-xs text-gray-300 font-medium">
+                  n8n: {n8nStatus}
+                </span>
+              </div>
+
+              <button
+                onClick={resetForm}
+                className="flex items-center gap-2 px-4 py-2 bg-slate-800 hover:bg-slate-700 text-white rounded-lg transition-all"
+              >
+                <RotateCcw size={14} />
+                <span className="text-sm font-semibold">Reset</span>
+              </button>
+
+              <button
+                onClick={exportData}
+                className="flex items-center gap-2 px-4 py-2 bg-gradient-to-r from-blue-600 to-blue-700 text-white rounded-lg transition-all"
+              >
+                <Download size={14} />
+                <span className="text-sm font-semibold">Export</span>
+              </button>
+            </div>
+          </div>
+
+          <div className="mt-3 flex items-center justify-between">
+            <div className="flex gap-6">
+              <div className="flex items-center gap-2">
+                <div className="w-1 h-4 bg-blue-500 rounded-full"></div>
+                <span className="text-xs text-gray-400">Session: {Date.now().toString(36).toUpperCase()}</span>
+              </div>
+              <div className="flex items-center gap-2">
+                <div className="w-1 h-4 bg-cyan-500 rounded-full"></div>
+                <span className="text-xs text-gray-400">v2.1.0 - Enterprise Integration</span>
+              </div>
+            </div>
+            <div className="text-xs text-gray-500">
+              {new Date().toLocaleString()}
+            </div>
+          </div>
         </div>
-        <div className="absolute -bottom-1 left-0 w-full h-1 bg-gradient-to-r from-blue-500 via-cyan-400 to-blue-500 rounded-full animate-pulse"></div>
-      </div>
-
-      <div className="flex flex-col">
-        <span className="text-xs text-blue-300 font-medium uppercase tracking-widest">
-          Clinical Decision Support System
-        </span>
-        <span className="text-xs text-gray-400">
-          AI-Powered Diagnostic Analysis
-        </span>
-      </div>
-    </div>
-
-    <div className="flex items-center gap-4">
-      <div className="flex items-center gap-2 bg-slate-800/50 px-3 py-1.5 rounded-lg border border-slate-700">
-        {n8nStatus === 'connected' ? (
-          <div className="flex items-center gap-2">
-            <div className="w-2 h-2 bg-green-500 rounded-full animate-pulse"></div>
-            <Wifi className="h-4 w-4 text-green-500" />
-          </div>
-        ) : n8nStatus === 'offline' ? (
-          <div className="flex items-center gap-2">
-            <div className="w-2 h-2 bg-yellow-500 rounded-full"></div>
-            <WifiOff className="h-4 w-4 text-yellow-500" />
-          </div>
-        ) : (
-          <div className="flex items-center gap-2">
-            <div className="w-2 h-2 bg-red-500 rounded-full"></div>
-            <WifiOff className="h-4 w-4 text-red-500" />
-          </div>
-        )}
-        <span className="text-xs text-gray-300 font-medium">
-          {n8nStatus === 'offline' ? 'Offline Mode' : `System: ${n8nStatus}`}
-        </span>
-      </div>
-
-      <button
-        onClick={resetForm}
-        className="flex items-center gap-2 px-4 py-2 bg-slate-800 hover:bg-slate-700 text-white rounded-lg transition-all duration-200 border border-slate-700 hover:border-slate-600 shadow-lg hover:shadow-xl"
-      >
-        <RotateCcw size={14} />
-        <span className="text-sm font-semibold">Reset</span>
-      </button>
-
-      <button
-        onClick={exportData}
-        className="flex items-center gap-2 px-4 py-2 bg-gradient-to-r from-blue-600 to-blue-700 hover:from-blue-700 hover:to-blue-800 text-white rounded-lg transition-all duration-200 shadow-lg hover:shadow-xl"
-      >
-        <Download size={14} />
-        <span className="text-sm font-semibold">Export</span>
-      </button>
-    </div>
-  </div>
-
-  {/* Epic status bar */}
-  <div className="mt-3 flex items-center justify-between">
-    <div className="flex gap-6">
-      <div className="flex items-center gap-2">
-        <div className="w-1 h-4 bg-blue-500 rounded-full"></div>
-        <span className="text-xs text-gray-400">Session ID: {Date.now().toString(36).toUpperCase()}</span>
-      </div>
-      <div className="flex items-center gap-2">
-        <div className="w-1 h-4 bg-cyan-500 rounded-full"></div>
-        <span className="text-xs text-gray-400">v2.0.1</span>
-      </div>
-    </div>
-    <div className="text-xs text-gray-500">
-      {new Date().toLocaleString('en-US', {
-        weekday: 'short',
-        year: 'numeric',
-        month: 'short',
-        day: 'numeric',
-        hour: '2-digit',
-        minute: '2-digit'
-      })}
-    </div>
-  </div>
-</div>
 
         {/* Main Content Grid */}
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
@@ -2522,15 +1427,16 @@ const submitToN8n = async () => {
             {/* Subjective Data */}
             <div className="bg-white shadow rounded-lg p-4">
               <h2 className="text-lg font-bold mb-3">Subjective Data</h2>
+              
               <EpicAutocompleteField
-  label="Chief Complaint"
-  dataFile="chief_complaint"
-  value={patientData.subjective.chiefComplaint}
-  onChange={(value) => updateSubjective('chiefComplaint', value)}
-  placeholder="Select chief complaint..."
-  multiple={false}
-  color="#e74c3c"
-/>
+                label="Chief Complaint"
+                dataFile="chief_complaint"
+                value={patientData.subjective.chiefComplaint}
+                onChange={(value) => updateSubjective('chiefComplaint', value)}
+                placeholder="Select chief complaint..."
+                multiple={false}
+                color="#e74c3c"
+              />
 
               <EpicAutocompleteField
                 label="Symptoms"
@@ -2587,7 +1493,6 @@ const submitToN8n = async () => {
             <div className="bg-white shadow rounded-lg p-4">
               <h2 className="text-lg font-bold mb-3">Objective Data</h2>
 
-              {/* Vitals */}
               <div className="mb-4">
                 <h3 className="text-sm font-semibold mb-2">Vital Signs</h3>
                 <div className="grid grid-cols-2 gap-2">
@@ -2665,24 +1570,17 @@ const submitToN8n = async () => {
             {/* Submit Button */}
             <button
               onClick={submitToN8n}
-              disabled={isProcessing || n8nStatus === 'offline'}
+              disabled={isProcessing}
               className={`w-full py-3 rounded font-bold flex items-center justify-center gap-2 ${
                 isProcessing
                   ? 'bg-gray-400 text-gray-600 cursor-not-allowed'
-                  : n8nStatus === 'offline'
-                  ? 'bg-yellow-500 text-white hover:bg-yellow-600'
-                  : 'bg-green-500 text-white hover:bg-green-600'
+                  : 'bg-gradient-to-r from-green-500 to-green-600 text-white hover:from-green-600 hover:to-green-700'
               }`}
             >
               {isProcessing ? (
                 <>
                   <Loader2 className="animate-spin" size={16} />
-                  Processing...
-                </>
-              ) : n8nStatus === 'offline' ? (
-                <>
-                  <Send size={16} />
-                  Analyze Locally (Offline Mode)
+                  Processing with AI...
                 </>
               ) : (
                 <>
@@ -2724,51 +1622,4 @@ const submitToN8n = async () => {
                       onChange={(e) => setShowLabels(e.target.checked)}
                     />
                     Labels
-                  </label>
-                  <select
-                    value={selectedDomains}
-                    onChange={(e) => setSelectedDomains(e.target.value)}
-                    className="text-xs border rounded px-2 py-1"
-                  >
-                    <option value="all">All Domains</option>
-                    <option value="symptoms">Symptoms</option>
-                    <option value="vitals">Vitals</option>
-                    <option value="labs">Labs</option>
-                    <option value="medications">Medications</option>
-                  </select>
-                </div>
-              </div>
-              <ComplexPlaneChart
-                data={processedData}
-                showConnections={showConnections}
-                showLabels={showLabels}
-                selectedDomains={selectedDomains}
-              />
-            </div>
-
-
-             {/* Analysis Grid */}
-             <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-             {/* Kuramoto Analysis */}
-             <KuramotoAnalysis data={processedData} n8nResults={n8nResults} />
-
-             {/* Bayesian Analysis */}
-             <BayesianAnalysis
-             patientData={patientData}
-             processedData={processedData}
-             n8nResults={n8nResults}  // Add this prop
-             />
-             </div>
-
-            {/* n8n Results */}
-            {n8nResults && (
-              <N8nResultsDisplay results={n8nResults} />
-            )}
-          </div>
-        </div>
-      </div>
-    </div>
-  );
-};
-
-export default DiagnoVeraEnterpriseInterface;
+                
