@@ -20,7 +20,7 @@ export default async function handler(req, res) {
     const decoded = jwt.verify(token, process.env.JWT_SECRET);
     const { email, name, image, timestamp } = decoded;
 
- // Change the expiration check:
+// Find this section and update the expiration check:
 const now = Date.now();
 const age = now - timestamp;
 if (age > 1800000) { // 30 minutes instead of 600000 (10 minutes)

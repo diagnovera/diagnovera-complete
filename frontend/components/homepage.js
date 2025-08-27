@@ -127,7 +127,7 @@ export default function HomePage({ onAuthSuccess }) {
           if (onAuthSuccess) {
             onAuthSuccess(response.data);
           } else {
-            router.push('/enterprise');
+            router.push('/diagnovera-enterprise');
           }
           return;
         }

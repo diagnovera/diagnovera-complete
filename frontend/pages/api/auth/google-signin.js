@@ -36,7 +36,7 @@ export default async function handler(req, res) {
     }
 
     // Generate authorization token with ALL user data
-// Change this section:
+// Find this section and update the JWT creation:
 const authToken = jwt.sign(
   {
     email,
