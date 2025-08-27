@@ -7,7 +7,12 @@ export default async function handler(req, res) {
   const { token } = req.query;
 
   if (!token) {
-    return res.status(400).send('Invalid request');
+    return res.status(400).send('Invalid request - no token provided');
+  }
+
+  if (!process.env.JWT_SECRET) {
+    console.error('JWT_SECRET not configured');
+    return res.status(500).send('Server configuration error');
   }
 
   try {
@@ -17,26 +22,29 @@ export default async function handler(req, res) {
 
     // Check if token is expired (10 minutes)
     const now = Date.now();
-    if (now - timestamp > 600000) {
-      return res.status(400).send('Authorization link has expired');
+    const age = now - timestamp;
+    if (age > 600000) {
+      return res.status(400).send(`
+        <html><body style="font-family: Arial; text-align: center; padding: 50px;">
+          <h2>Authorization Link Expired</h2>
+          <p>This link expired ${Math.round(age / 60000)} minutes after creation.</p>
+          <p>Please request a new login.</p>
+        </body></html>
+      `);
     }
 
-    // Store authorization in Redis with 1 hour expiry
-    await redis.set(
-      `auth:${email}`,
-      JSON.stringify({
-        email,
-        name,
-        image,
-        authorized: true,
-        authorizedAt: now
-      }),
-      { ex: 3600 } // Expires in 1 hour
-    );
+    // Store authorization in Redis
+    const authData = {
+      email,
+      name,
+      image,
+      authorized: true,
+      authorizedAt: now
+    };
 
-    console.log(`Authorized ${email} in Redis`);
+    await redis.set(`auth:${email}`, JSON.stringify(authData), { ex: 3600 });
 
-    // Send success page
+    // Success response
     res.status(200).send(`
       <!DOCTYPE html>
       <html>
@@ -60,34 +68,40 @@ export default async function handler(req, res) {
             box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
             max-width: 500px;
           }
-          h1 {
-            color: #10b981;
-            margin-bottom: 20px;
-          }
-          .email {
-            font-weight: bold;
-            color: #374151;
-            background: #f3f4f6;
-            padding: 8px 16px;
-            border-radius: 6px;
-            display: inline-block;
-            margin: 10px 0;
-          }
+          h1 { color: #10b981; }
         </style>
       </head>
       <body>
         <div class="container">
           <h1>✓ Authorization Successful</h1>
           <p>You have successfully authorized access for:</p>
-          <p class="email">${email}</p>
+          <p><strong>${email}</strong></p>
           <p>The user can now access DiagnoVera.</p>
-          <p style="margin-top: 30px; font-size: 14px; color: #9ca3af;">You can close this window.</p>
+          <p style="margin-top: 30px; color: #666;">You can close this window.</p>
         </div>
       </body>
       </html>
     `);
   } catch (error) {
     console.error('Authorization error:', error);
-    res.status(400).send('Invalid or expired authorization link');
+
+    if (error.name === 'JsonWebTokenError') {
+      return res.status(400).send(`
+        <html><body style="font-family: Arial; text-align: center; padding: 50px;">
+          <h2>Invalid Authorization Link</h2>
+          <p>This authorization link is invalid.</p>
+          <p>Error: ${error.message}</p>
+        </body></html>
+      `);
+    } else if (error.name === 'TokenExpiredError') {
+      return res.status(400).send(`
+        <html><body style="font-family: Arial; text-align: center; padding: 50px;">
+          <h2>Authorization Link Expired</h2>
+          <p>This link has expired. Please request a new login.</p>
+        </body></html>
+      `);
+    } else {
+      return res.status(400).send('Authorization failed: ' + error.message);
+    }
   }
 }
