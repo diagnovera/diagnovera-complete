@@ -12,39 +12,59 @@ export default function HomePage({ onAuthSuccess }) {
   const [userMessage, setUserMessage] = useState('');
   const pollIntervalRef = useRef(null);
 
-  useEffect(() => {
-    // Check for existing session on mount
-    const sessionData = localStorage.getItem('diagnovera_session');
-    if (sessionData) {
-      try {
-        const session = JSON.parse(sessionData);
-        if (session.authorized && session.email) {
-          console.log('Found existing session, redirecting...');
+// Update the useEffect in your homepage that checks for existing sessions:
+
+useEffect(() => {
+  // Check for existing session on mount
+  const sessionData = localStorage.getItem('diagnovera_session');
+  if (sessionData) {
+    try {
+      const session = JSON.parse(sessionData);
+      if (session.authorized && session.email) {
+        console.log('Found existing session for:', session.email);
+        
+        // CRITICAL: Create JWT cookie that middleware expects
+        const sessionToken = btoa(JSON.stringify({
+          email: session.email,
+          name: session.name,
+          image: session.image,
+          authorized: true,
+          authorizedAt: session.timestamp || Date.now()
+        }));
+        
+        // Set the cookie that middleware checks for
+        document.cookie = `authToken=${sessionToken}; path=/; max-age=86400; samesite=strict`;
+        
+        console.log('Set auth cookie, redirecting...');
+        
+        // Small delay to ensure cookie is set
+        setTimeout(() => {
           if (onAuthSuccess) {
             onAuthSuccess(session);
           } else {
             window.location.href = '/diagnoveraenterpriseinterface';
           }
-          return;
-        }
-      } catch (error) {
-        console.error('Error parsing session data:', error);
-        localStorage.removeItem('diagnovera_session');
+        }, 100);
+        return;
       }
+    } catch (error) {
+      console.error('Error parsing session data:', error);
+      localStorage.removeItem('diagnovera_session');
     }
+  }
 
-    // Initialize Google Sign-In when script loads
-    if (window.google) {
-      initializeGoogleSignIn();
+  // Initialize Google Sign-In when script loads
+  if (window.google) {
+    initializeGoogleSignIn();
+  }
+
+  // Cleanup function to clear polling on unmount
+  return () => {
+    if (pollIntervalRef.current) {
+      clearInterval(pollIntervalRef.current);
     }
-
-    // Cleanup function to clear polling on unmount
-    return () => {
-      if (pollIntervalRef.current) {
-        clearInterval(pollIntervalRef.current);
-      }
-    };
-  }, [onAuthSuccess]);
+  };
+}, [onAuthSuccess]);
 
   const initializeGoogleSignIn = () => {
     if (!window.google || !document.getElementById("googleSignInButton")) {

@@ -1,6 +1,5 @@
 // middleware.js
 import { NextResponse } from 'next/server';
-import jwt from 'jsonwebtoken';
 
 export function middleware(request) {
   console.log('Middleware checking path:', request.nextUrl.pathname);
@@ -18,14 +17,33 @@ export function middleware(request) {
     }
 
     try {
-      // Verify the JWT token
-      const decoded = jwt.verify(authToken.value, process.env.JWT_SECRET);
-      console.log('Token verified for user:', decoded.email);
+      // Try to decode the base64 session token first
+      let decoded;
+      try {
+        // Try base64 decode (for session tokens from homepage)
+        decoded = JSON.parse(atob(authToken.value));
+        console.log('Decoded base64 session token for user:', decoded.email);
+      } catch (base64Error) {
+        // If base64 fails, try JWT decode (for JWT tokens from status API)
+        const jwt = await import('jsonwebtoken');
+        decoded = jwt.verify(authToken.value, process.env.JWT_SECRET);
+        console.log('Verified JWT token for user:', decoded.email);
+      }
       
       // Check if user is authorized
       if (!decoded.authorized) {
         console.log('Token exists but not authorized - redirecting to homepage');
         return NextResponse.redirect(new URL('/?status=unauthorized', request.url));
+      }
+
+      // Check if authorization is still valid (24 hours)
+      const now = Date.now();
+      const authTime = decoded.authorizedAt || decoded.timestamp || now;
+      const age = now - authTime;
+      
+      if (age > 86400000) { // 24 hours
+        console.log('Authorization expired - redirecting to homepage');
+        return NextResponse.redirect(new URL('/?status=expired', request.url));
       }
 
       console.log('Authorization verified - allowing access');
@@ -48,7 +66,13 @@ export function middleware(request) {
     }
 
     try {
-      const decoded = jwt.verify(authToken.value, process.env.JWT_SECRET);
+      let decoded;
+      try {
+        decoded = JSON.parse(atob(authToken.value));
+      } catch (base64Error) {
+        const jwt = await import('jsonwebtoken');
+        decoded = jwt.verify(authToken.value, process.env.JWT_SECRET);
+      }
       
       if (!decoded.authorized) {
         return NextResponse.redirect(new URL('/?status=unauthorized', request.url));
