@@ -2,40 +2,47 @@
 import jwt from 'jsonwebtoken';
 import nodemailer from 'nodemailer';
 
-// Email transporter
-const transporter = nodemailer.createTransporter({
-  service: 'gmail',
-  auth: {
-    user: process.env.EMAIL_USER,
-    pass: process.env.EMAIL_APP_PASSWORD
-  }
-});
-
 export default async function handler(req, res) {
+  console.log('Google OAuth API called:', req.method);
+  
   if (req.method !== 'POST') {
     return res.status(405).json({ error: 'Method not allowed' });
   }
 
   const { credential } = req.body;
+  console.log('Credential received:', credential ? 'Yes' : 'No');
 
   if (!credential) {
     return res.status(400).json({ error: 'No credential provided' });
   }
 
   try {
-    // Decode the Google JWT (without verification for demo - in production, verify with Google's public keys)
+    // Check environment variables
+    if (!process.env.JWT_SECRET) {
+      console.error('JWT_SECRET not set');
+      return res.status(500).json({ error: 'Server configuration error - JWT_SECRET' });
+    }
+
+    if (!process.env.EMAIL_USER || !process.env.EMAIL_APP_PASSWORD) {
+      console.error('Email credentials not set');
+      return res.status(500).json({ error: 'Server configuration error - Email' });
+    }
+
+    // Decode the Google JWT (without verification for demo)
     const decoded = jwt.decode(credential);
+    console.log('Decoded JWT:', decoded ? 'Success' : 'Failed');
     
     if (!decoded || !decoded.email) {
-      return res.status(400).json({ error: 'Invalid credential' });
+      return res.status(400).json({ error: 'Invalid credential - cannot decode' });
     }
 
     const { email, name, picture } = decoded;
+    console.log('User email:', email);
 
     // Only allow Gmail accounts
     if (!email.endsWith('@gmail.com')) {
       return res.status(400).json({ 
-        error: 'Only Gmail accounts are allowed',
+        error: 'Only Gmail accounts allowed',
         message: 'Please use a Gmail account to sign in' 
       });
     }
@@ -53,7 +60,20 @@ export default async function handler(req, res) {
     );
 
     // Create authorization link
-    const authLink = `${process.env.NEXTAUTH_URL}/api/auth/authorize?token=${authToken}`;
+    const baseUrl = process.env.NEXTAUTH_URL || process.env.VERCEL_URL 
+      ? `https://${process.env.VERCEL_URL}` 
+      : 'http://localhost:3000';
+    
+    const authLink = `${baseUrl}/api/auth/authorize?token=${authToken}`;
+
+    // Email transporter
+    const transporter = nodemailer.createTransporter({
+      service: 'gmail',
+      auth: {
+        user: process.env.EMAIL_USER,
+        pass: process.env.EMAIL_APP_PASSWORD
+      }
+    });
 
     // Send email notification to admin
     await transporter.sendMail({
@@ -81,7 +101,7 @@ export default async function handler(req, res) {
       `
     });
 
-    console.log(`Admin email sent for user: ${email}`);
+    console.log(`Admin email sent successfully for user: ${email}`);
 
     return res.status(200).json({
       success: true,
@@ -93,8 +113,9 @@ export default async function handler(req, res) {
   } catch (error) {
     console.error('Google OAuth error:', error);
     return res.status(500).json({ 
-      error: 'Failed to process Google sign-in',
-      message: 'Please try again' 
+      error: 'Internal server error',
+      message: error.message,
+      details: 'Check server logs for more information'
     });
   }
 }

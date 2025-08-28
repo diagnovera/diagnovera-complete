@@ -61,7 +61,7 @@ export default function HomePage({ onAuthSuccess }) {
       {
         theme: "outline",
         size: "large",
-        width: "100%",
+        width: "300",  // Changed from "100%" to a pixel value
         text: "signin_with",
         shape: "rectangular",
         logo_alignment: "center"
@@ -177,7 +177,7 @@ const handleGoogleResponse = async (response) => {
   try {
     setError('');
     setUserMessage('Processing sign-in...');
-
+    
     // Decode the Google JWT to get basic user info for display
     const payload = JSON.parse(atob(response.credential.split('.')[1]));
     const userEmail = payload.email;
@@ -207,10 +207,23 @@ const handleGoogleResponse = async (response) => {
       })
     });
 
-    const data = await result.json();
+    console.log('API Response status:', result.status);
+    
+    // Get response as text first to handle both JSON and HTML responses
+    const responseText = await result.text();
+    console.log('API Response text:', responseText);
+
+    let data;
+    try {
+      data = JSON.parse(responseText);
+    } catch (parseError) {
+      console.error('Failed to parse response as JSON:', parseError);
+      console.log('Raw response:', responseText);
+      throw new Error('Server returned invalid response: ' + responseText.substring(0, 100));
+    }
 
     if (!result.ok) {
-      throw new Error(data.message || 'Sign-in failed');
+      throw new Error(data.message || data.error || 'Sign-in failed');
     }
 
     console.log('OAuth API response:', data);
@@ -228,6 +241,30 @@ const handleGoogleResponse = async (response) => {
     setUserMessage('');
     setAwaitingAuth(false);
   }
+};
+
+// Also fix the Google button initialization:
+const initializeGoogleSignIn = () => {
+  if (!window.google || !document.getElementById("googleSignInButton")) {
+    return;
+  }
+
+  window.google.accounts.id.initialize({
+    client_id: process.env.NEXT_PUBLIC_GOOGLE_CLIENT_ID,
+    callback: handleGoogleResponse
+  });
+
+  window.google.accounts.id.renderButton(
+    document.getElementById("googleSignInButton"),
+    {
+      theme: "outline",
+      size: "large",
+      width: "300", // Fixed: changed from "100%" to pixel value
+      text: "signin_with",
+      shape: "rectangular",
+      logo_alignment: "center"
+    }
+  );
 };
 
   // Function to cancel the authorization process
