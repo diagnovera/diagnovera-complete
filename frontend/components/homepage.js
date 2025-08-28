@@ -243,30 +243,6 @@ const handleGoogleResponse = async (response) => {
   }
 };
 
-// Also fix the Google button initialization:
-const initializeGoogleSignIn = () => {
-  if (!window.google || !document.getElementById("googleSignInButton")) {
-    return;
-  }
-
-  window.google.accounts.id.initialize({
-    client_id: process.env.NEXT_PUBLIC_GOOGLE_CLIENT_ID,
-    callback: handleGoogleResponse
-  });
-
-  window.google.accounts.id.renderButton(
-    document.getElementById("googleSignInButton"),
-    {
-      theme: "outline",
-      size: "large",
-      width: "300", // Fixed: changed from "100%" to pixel value
-      text: "signin_with",
-      shape: "rectangular",
-      logo_alignment: "center"
-    }
-  );
-};
-
   // Function to cancel the authorization process
   const cancelAuthorization = () => {
     if (pollIntervalRef.current) {
