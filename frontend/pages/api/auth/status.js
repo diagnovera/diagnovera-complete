@@ -19,9 +19,9 @@ export default async function handler(req, res) {
     console.log('Checking authorization status for:', email);
 
     // Check Redis for authorization
-    const authDataStr = await redis.get(`auth:${email}`);
+    const authDataRaw = await redis.get(`auth:${email}`);
     
-    if (!authDataStr) {
+    if (!authDataRaw) {
       console.log('No authorization found for:', email);
       return res.status(401).json({ 
         authorized: false, 
@@ -29,8 +29,33 @@ export default async function handler(req, res) {
       });
     }
 
-    console.log('Auth data found:', authDataStr);
-    const authData = JSON.parse(authDataStr);
+    console.log('Raw auth data type:', typeof authDataRaw);
+    console.log('Raw auth data:', authDataRaw);
+
+    // Handle both object and string responses from Redis
+    let authData;
+    if (typeof authDataRaw === 'string') {
+      try {
+        authData = JSON.parse(authDataRaw);
+      } catch (parseError) {
+        console.error('Failed to parse auth data as JSON:', parseError);
+        return res.status(500).json({
+          error: 'Invalid auth data format',
+          message: 'Stored authorization data is corrupted'
+        });
+      }
+    } else if (typeof authDataRaw === 'object' && authDataRaw !== null) {
+      // Redis returned an object directly
+      authData = authDataRaw;
+    } else {
+      console.error('Unexpected auth data type:', typeof authDataRaw, authDataRaw);
+      return res.status(500).json({
+        error: 'Invalid auth data type',
+        message: 'Stored authorization data has unexpected format'
+      });
+    }
+
+    console.log('Parsed auth data:', authData);
 
     if (!authData.authorized) {
       return res.status(401).json({ 
