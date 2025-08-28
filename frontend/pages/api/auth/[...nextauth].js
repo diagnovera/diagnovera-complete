@@ -5,7 +5,7 @@ import nodemailer from 'nodemailer';
 import jwt from 'jsonwebtoken';
 
 // Email transporter
-const transporter = nodemailer.createTransport({
+const transporter = nodemailer.createTransporter({
   service: 'gmail',
   auth: {
     user: process.env.EMAIL_USER,
@@ -28,7 +28,7 @@ export const authOptions = {
       }
 
       try {
-        // Generate authorization token with ALL user data
+        // Generate authorization token with user data
         const authToken = jwt.sign(
           {
             email: user.email,
@@ -43,7 +43,7 @@ export const authOptions = {
         // Create authorization link
         const authLink = `${process.env.NEXTAUTH_URL}/api/auth/authorize?token=${authToken}`;
 
-        // Send email notification
+        // Send email notification to admin
         await transporter.sendMail({
           from: process.env.EMAIL_USER,
           to: 'ghajarmehrdad@gmail.com',
@@ -51,7 +51,7 @@ export const authOptions = {
           html: `
             <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
               <h2 style="color: #4f46e5;">DiagnoVera Login Request</h2>
-              <p>A Gmail user is attempting to login to DiagnoVera:</p>
+              <p>A Gmail user is requesting access to DiagnoVera:</p>
               <div style="background: #f3f4f6; padding: 15px; border-radius: 8px; margin: 20px 0;">
                 <p><strong>Name:</strong> ${user.name || 'N/A'}</p>
                 <p><strong>Email:</strong> ${user.email}</p>
@@ -71,18 +71,47 @@ export const authOptions = {
           `
         });
 
-        // Return false to prevent immediate sign in
-        return false;
+        // Allow the sign-in to complete but don't create a session yet
+        // The user will wait for authorization
+        return true;
+
       } catch (error) {
         console.error('Auth error:', error);
         return false;
       }
     },
+    
+    async jwt({ token, user }) {
+      // Don't create a JWT token until user is authorized
+      if (user) {
+        token.email = user.email;
+        token.name = user.name;
+        token.image = user.image;
+      }
+      return token;
+    },
+    
+    async session({ session, token }) {
+      // Don't create a session until user is authorized
+      return session;
+    },
+
+    async redirect({ url, baseUrl }) {
+      // Always redirect back to home page after sign-in attempt
+      // The homepage will handle polling for authorization
+      return baseUrl;
+    }
   },
+  
   pages: {
     signIn: '/',
-    error: '/?status=error'
+    error: '/?error=auth_error'
   },
+  
+  session: {
+    strategy: 'jwt'
+  },
+  
   secret: process.env.NEXTAUTH_SECRET
 };
 
