@@ -20,7 +20,7 @@ export default async function handler(req, res) {
     const decoded = jwt.verify(token, process.env.JWT_SECRET);
     const { email, name, image, timestamp } = decoded;
 
-    // Check if token is expired (10 minutes as per your NextAuth config)
+    // Check if token is expired (10 minutes)
     const now = Date.now();
     const age = now - timestamp;
     if (age > 600000) { // 10 minutes
@@ -33,7 +33,7 @@ export default async function handler(req, res) {
       `);
     }
 
-    // Store authorization in Redis with the user's data
+    // Store authorization in Redis - this allows the USER'S browser to detect approval
     const authData = {
       email,
       name,
@@ -43,23 +43,12 @@ export default async function handler(req, res) {
       authorizedBy: 'ghajarmehrdad@gmail.com'
     };
 
-    // Store with a longer expiration for the session (24 hours)
+    // Store with 24 hour expiration
     await redis.set(`auth:${email}`, JSON.stringify(authData), { ex: 86400 });
 
-    // Create a session token that the client can use
-    const sessionToken = jwt.sign(
-      {
-        email,
-        name,
-        image,
-        authorized: true,
-        authorizedAt: now
-      },
-      process.env.JWT_SECRET,
-      { expiresIn: '24h' }
-    );
-
-    // Success response with auto-redirect script for the user
+    // ADMIN CONFIRMATION PAGE - NO REDIRECT
+    // This page is for YOU (the admin) to see confirmation
+    // The USER will be redirected by their polling homepage
     res.status(200).send(`
       <!DOCTYPE html>
       <html>
@@ -89,61 +78,31 @@ export default async function handler(req, res) {
             color: #10b981;
             margin-bottom: 20px;
           }
-          .spinner {
-            border: 3px solid #f3f3f3;
-            border-top: 3px solid #3498db;
-            border-radius: 50%;
-            width: 30px;
-            height: 30px;
-            animation: spin 1s linear infinite;
-            margin: 20px auto;
-          }
-          @keyframes spin {
-            0% { transform: rotate(0deg); }
-            100% { transform: rotate(360deg); }
+          .user-info {
+            background: #f3f4f6;
+            padding: 20px;
+            border-radius: 8px;
+            margin: 20px 0;
           }
         </style>
-        <script>
-          // Store the session token and redirect
-          document.addEventListener('DOMContentLoaded', function() {
-            try {
-              // Store session data in localStorage for the main app to pick up
-              localStorage.setItem('diagnovera_session', JSON.stringify({
-                email: '${email}',
-                name: '${name}',
-                image: '${image || ''}',
-                authorized: true,
-                timestamp: ${now}
-              }));
-
-              // Also set a cookie for server-side checks
-              document.cookie = 'authToken=${sessionToken}; path=/; max-age=86400; samesite=strict';
-
-              // Redirect to the main application after a short delay
-              setTimeout(function() {
-                window.location.href = '/diagnoveraenterpriseinterface';
-              }, 2000);
-            } catch (error) {
-              console.error('Error setting session data:', error);
-              document.getElementById('status').innerHTML = 
-                '<p style="color: red;">Error setting up session. Please try logging in again.</p>';
-            }
-          });
-        </script>
       </head>
       <body>
         <div class="container">
           <div class="checkmark">✓</div>
-          <h1>Authorization Successful</h1>
-          <div id="status">
-            <p>Welcome, <strong>${name}</strong>!</p>
-            <p>You have been authorized to access DiagnoVera.</p>
-            <div class="spinner"></div>
-            <p>Redirecting to the application...</p>
+          <h1>User Authorization Complete</h1>
+          
+          <div class="user-info">
+            <h3>Authorized User:</h3>
+            <p><strong>Name:</strong> ${name}</p>
+            <p><strong>Email:</strong> ${email}</p>
+            <p><strong>Time:</strong> ${new Date().toLocaleString()}</p>
           </div>
+
+          <p><strong>The user will be automatically redirected to the application.</strong></p>
+          
           <p style="margin-top: 30px; color: #666; font-size: 14px;">
-            If you are not redirected automatically, 
-            <a href="/diagnoveraenterpriseinterface">click here</a>.
+            You can close this window. The user's browser will detect this authorization 
+            and automatically redirect them to the DiagnoVera application.
           </p>
         </div>
       </body>

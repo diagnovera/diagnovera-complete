@@ -1,7 +1,7 @@
 // components/HomePage.js
 import { useState, useEffect, useRef } from 'react';
 import { useRouter } from 'next/router';
-import axios from 'axios';
+import { signIn } from 'next-auth/react';
 import Script from 'next/script';
 
 export default function HomePage({ onAuthSuccess }) {
@@ -9,59 +9,21 @@ export default function HomePage({ onAuthSuccess }) {
   const [error, setError] = useState('');
   const [awaitingAuth, setAwaitingAuth] = useState(false);
   const [authEmail, setAuthEmail] = useState('');
-  const [authToken, setAuthToken] = useState('');
+  const [userMessage, setUserMessage] = useState('');
   const pollIntervalRef = useRef(null);
 
   useEffect(() => {
-    // Check URL params for authorization redirect
-    const urlParams = new URLSearchParams(window.location.search);
-    const authorized = urlParams.get('authorized');
-
-    if (authorized === 'true') {
-      // Get auth data from localStorage (set by authorize.js)
-      const token = localStorage.getItem('authToken');
-      const email = localStorage.getItem('userEmail');
-      const name = localStorage.getItem('userName');
-      const image = localStorage.getItem('userImage');
-
-      if (token) {
-        // Clear URL params
-        window.history.replaceState({}, document.title, window.location.pathname);
-
-        // Set cookie for server-side auth
-        document.cookie = `authToken=${token}; path=/; max-age=86400`;
-
-        if (onAuthSuccess) {
-          onAuthSuccess({ token, email, name, image });
-        } else {
-          // FIXED: Redirect to correct main application page
-          router.push('/diagnoveraenterpriseinterface');
-        }
-      }
-    }
-
-    // Check for session data from localStorage (set by authorize.js redirect)
+    // Check for existing session on mount
     const sessionData = localStorage.getItem('diagnovera_session');
     if (sessionData) {
       try {
         const session = JSON.parse(sessionData);
         if (session.authorized && session.email) {
           console.log('Found existing session, redirecting...');
-          
-          // Set cookie for server-side auth
-          const sessionToken = btoa(JSON.stringify({
-            email: session.email,
-            name: session.name,
-            image: session.image,
-            authorizedAt: session.timestamp
-          }));
-          document.cookie = `authToken=${sessionToken}; path=/; max-age=86400`;
-          
           if (onAuthSuccess) {
             onAuthSuccess(session);
           } else {
-            // FIXED: Redirect to correct main application page
-            router.push('/diagnoveraenterpriseinterface');
+            window.location.href = '/diagnoveraenterpriseinterface';
           }
           return;
         }
@@ -71,7 +33,7 @@ export default function HomePage({ onAuthSuccess }) {
       }
     }
 
-    // Initialize Google Sign-In
+    // Initialize Google Sign-In when script loads
     if (window.google) {
       initializeGoogleSignIn();
     }
@@ -82,9 +44,13 @@ export default function HomePage({ onAuthSuccess }) {
         clearInterval(pollIntervalRef.current);
       }
     };
-  }, [router, onAuthSuccess]);
+  }, [onAuthSuccess]);
 
   const initializeGoogleSignIn = () => {
+    if (!window.google || !document.getElementById("googleSignInButton")) {
+      return;
+    }
+
     window.google.accounts.id.initialize({
       client_id: process.env.NEXT_PUBLIC_GOOGLE_CLIENT_ID,
       callback: handleGoogleResponse
@@ -109,7 +75,6 @@ export default function HomePage({ onAuthSuccess }) {
       clearInterval(pollIntervalRef.current);
     }
 
-    // Validate email before starting
     if (!email || email.trim() === '') {
       console.error('Cannot poll with empty email');
       setAwaitingAuth(false);
@@ -118,115 +83,137 @@ export default function HomePage({ onAuthSuccess }) {
     }
 
     let attempts = 0;
-    const maxAttempts = 200;
+    const maxAttempts = 200; // 10 minutes at 3-second intervals
 
-    console.log('Starting poll for email:', email);
+    console.log('Starting authorization polling for:', email);
+    setUserMessage(`Waiting for admin approval for ${email}...`);
 
     pollIntervalRef.current = setInterval(async () => {
       attempts++;
+      console.log(`Poll attempt ${attempts} for ${email}`);
 
       try {
-        // UPDATED: Use the new auth status API instead of check-authorization
-        const response = await axios.post('/api/auth/status', {
-          email: email
+        const response = await fetch('/api/auth/status', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({ email: email })
         });
 
-        console.log(`Poll attempt ${attempts}:`, response.data);
+        const data = await response.json();
 
-        if (response.data.authorized) {
-          console.log('Authorization confirmed!');
+        if (response.ok && data.authorized) {
+          console.log('Authorization confirmed for:', email);
           clearInterval(pollIntervalRef.current);
           pollIntervalRef.current = null;
           setAwaitingAuth(false);
+          setUserMessage('Authorization approved! Redirecting...');
 
-          // Store session data from the API response
+          // Store session data
           localStorage.setItem('diagnovera_session', JSON.stringify({
-            email: response.data.user.email,
-            name: response.data.user.name,
-            image: response.data.user.image,
+            email: data.user.email,
+            name: data.user.name,
+            image: data.user.image,
             authorized: true,
             timestamp: Date.now()
           }));
 
           // Set cookie
-          document.cookie = `authToken=${response.data.sessionToken}; path=/; max-age=86400`;
+          document.cookie = `authToken=${data.sessionToken}; path=/; max-age=86400; samesite=strict`;
 
-          console.log('Calling onAuthSuccess');
-          if (onAuthSuccess) {
-            onAuthSuccess(response.data.user);
-          } else {
-            // FIXED: Redirect to correct main application page
-            router.push('/diagnoveraenterpriseinterface');
-          }
+          // Small delay to show the message, then redirect
+          setTimeout(() => {
+            if (onAuthSuccess) {
+              onAuthSuccess(data.user);
+            } else {
+              window.location.href = '/diagnoveraenterpriseinterface';
+            }
+          }, 1500);
           return;
+        } else if (response.status === 401) {
+          // Still waiting for authorization - this is expected
+          const minutesWaited = Math.floor(attempts * 3 / 60);
+          setUserMessage(`Still waiting for approval... (${minutesWaited} min${minutesWaited !== 1 ? 's' : ''})`);
+          return;
+        } else {
+          throw new Error(data.message || 'Authorization check failed');
         }
 
       } catch (err) {
-        console.error('Poll error:', err);
+        console.log(`Poll attempt ${attempts} - error:`, err.message);
         
-        // If it's a 401 error, continue polling (waiting for auth)
-        if (err.response?.status === 401) {
-          // This is expected while waiting for authorization
+        // If it's a network error or 401, continue polling
+        if (attempts < 10 || err.message.includes('401') || err.message.includes('Not authorized')) {
+          const minutesWaited = Math.floor(attempts * 3 / 60);
+          setUserMessage(`Still waiting for approval... (${minutesWaited} min${minutesWaited !== 1 ? 's' : ''})`);
           return;
         }
         
-        // If it's a 400 error (bad email), stop polling
-        if (err.response?.status === 400) {
-          console.error('Bad request - stopping polling');
-          clearInterval(pollIntervalRef.current);
-          pollIntervalRef.current = null;
-          setAwaitingAuth(false);
-          setError('Authorization failed. Please try logging in again.');
-          return;
-        }
+        // Other persistent errors
+        console.error('Stopping polling due to error:', err);
+        clearInterval(pollIntervalRef.current);
+        pollIntervalRef.current = null;
+        setAwaitingAuth(false);
+        setError('Authorization check failed. Please try logging in again.');
+        return;
       }
 
-      // Stop after max attempts
+      // Stop after max attempts (10 minutes)
       if (attempts >= maxAttempts) {
         clearInterval(pollIntervalRef.current);
         pollIntervalRef.current = null;
         setAwaitingAuth(false);
-        setError('Authorization timeout. Please try again.');
+        setError('Authorization timeout after 10 minutes. Please contact the administrator.');
       }
-    }, 3000);
+    }, 3000); // Poll every 3 seconds
   };
 
   const handleGoogleResponse = async (response) => {
     try {
-      setError(''); // Clear any previous errors
+      setError('');
+      setUserMessage('Processing sign-in...');
       
-      // UPDATED: Use the correct API endpoint
-      const res = await axios.post('/api/auth/google-signin', {
-        credential: response.credential
+      // Decode the JWT to get user info
+      const payload = JSON.parse(atob(response.credential.split('.')[1]));
+      const userEmail = payload.email;
+      const userName = payload.name;
+      const userImage = payload.picture;
+
+      console.log('Google sign-in successful for:', userEmail);
+
+      // Only allow Gmail accounts
+      if (!userEmail.endsWith('@gmail.com')) {
+        setError('Only Gmail accounts are allowed. Please use a Gmail account.');
+        setUserMessage('');
+        return;
+      }
+
+      // Trigger NextAuth signin to send admin email
+      const result = await signIn('google', {
+        redirect: false,
+        callbackUrl: '/'
       });
 
-      if (res.data.success) {
-        const userEmail = res.data.email;
-        
-        setAwaitingAuth(true);
-        setAuthEmail(userEmail);
-        setAuthToken(res.data.token);
-        
-        // Start polling with the actual email
-        pollAuthorization(userEmail);
+      if (result?.error) {
+        setError('Sign-in failed: ' + result.error);
+        setUserMessage('');
+        return;
       }
+
+      // Start the authorization flow
+      setAwaitingAuth(true);
+      setAuthEmail(userEmail);
+      setUserMessage(`Sign-in successful for ${userName}. Admin notification sent.`);
+
+      // Start polling for authorization approval
+      pollAuthorization(userEmail);
+
     } catch (err) {
       console.error('Google signin error:', err);
-      
-      // Handle case where google-signin API might not exist
-      if (err.response?.status === 404) {
-        setError('Authentication system not fully configured. Please contact administrator.');
-      } else {
-        setError(err.response?.data?.message || 'Authentication failed');
-      }
-      
+      setError('Authentication failed. Please try again.');
+      setUserMessage('');
       setAwaitingAuth(false);
-      
-      // Clear any polling that might have started
-      if (pollIntervalRef.current) {
-        clearInterval(pollIntervalRef.current);
-        pollIntervalRef.current = null;
-      }
     }
   };
 
@@ -238,7 +225,7 @@ export default function HomePage({ onAuthSuccess }) {
     }
     setAwaitingAuth(false);
     setAuthEmail('');
-    setAuthToken('');
+    setUserMessage('');
     setError('');
   };
 
@@ -294,6 +281,7 @@ export default function HomePage({ onAuthSuccess }) {
         .btn.google:hover{background:#f9fafb;transform:translateY(-1px);box-shadow:0 4px 12px rgba(0,0,0,.1)}
         .google-icon{width:20px;height:20px}
         .error{color:#ef4444;font-size:.85rem;margin-top:12px;padding:10px;background:#fef2f2;border-radius:8px;border:1px solid #fee2e2}
+        .success{color:#10b981;font-size:.85rem;margin-top:12px;padding:10px;background:#f0fdf4;border-radius:8px;border:1px solid #bbf7d0}
         .waiting{background:#f3f4f6;border-radius:12px;padding:20px;margin-top:12px;text-align:center}
         .waiting h4{margin:0 0 12px;color:#1f2937}
         .spinner{border:3px solid #f3f4f6;border-top:3px solid var(--indigo);border-radius:50%;width:40px;height:40px;animation:spin 1s linear infinite;margin:0 auto 16px}
@@ -393,11 +381,11 @@ export default function HomePage({ onAuthSuccess }) {
                   <div className="spinner"></div>
                   <h4>Awaiting Authorization</h4>
                   <p style={{color:'#64748b',fontSize:'.9rem'}}>
-                    An authorization request has been sent to the administrator.
+                    {userMessage}
                   </p>
                   <div className="auth-info">
                     <p><strong>Gmail Account:</strong> {authEmail}</p>
-                    <p>Please wait for approval...</p>
+                    <p>An admin notification has been sent. Please wait for approval.</p>
                   </div>
                   <button 
                     className="cancel-btn" 
@@ -425,6 +413,7 @@ export default function HomePage({ onAuthSuccess }) {
                   </p>
 
                   {error && <div className="error">{error}</div>}
+                  {userMessage && !error && <div className="success">{userMessage}</div>}
 
                   <p style={{fontSize:'.8rem',color:'#64748b',margin:'16px 0 0'}}>
                     By continuing, you agree to role-based access controls and audit logging.
@@ -437,7 +426,6 @@ export default function HomePage({ onAuthSuccess }) {
         </div>
       </section>
 
-      {/* Rest of the sections remain exactly the same... */}
       <section id="platform">
         <div className="container">
           <div className="badge" style={{color:'#4f46e5'}}>Platform</div>
