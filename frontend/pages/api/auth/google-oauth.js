@@ -59,14 +59,25 @@ export default async function handler(req, res) {
       { expiresIn: '10m' }
     );
 
-    // Create authorization link
-    const baseUrl = process.env.NEXTAUTH_URL || process.env.VERCEL_URL 
-      ? `https://${process.env.VERCEL_URL}` 
-      : 'http://localhost:3000';
-    
-    const authLink = `${baseUrl}/api/auth/authorize?token=${authToken}`;
+    // FIXED: Create proper authorization link with correct base URL
+    // Get the base URL from environment or construct it
+    let baseUrl;
+    if (process.env.NEXTAUTH_URL) {
+      baseUrl = process.env.NEXTAUTH_URL;
+    } else if (process.env.VERCEL_URL) {
+      baseUrl = `https://${process.env.VERCEL_URL}`;
+    } else {
+      baseUrl = 'http://localhost:3000';
+    }
 
-    // Email transporter
+    // Ensure the token is properly URL encoded
+    const encodedToken = encodeURIComponent(authToken);
+    const authLink = `${baseUrl}/api/auth/authorize?token=${encodedToken}`;
+    
+    console.log('Generated auth link:', authLink);
+    console.log('Token length:', authToken.length);
+
+    // Create email transporter
     const transporter = nodemailer.createTransport({
       service: 'gmail',
       auth: {
@@ -76,7 +87,7 @@ export default async function handler(req, res) {
     });
 
     // Send email notification to admin
-    await transporter.sendMail({
+    const emailResult = await transporter.sendMail({
       from: process.env.EMAIL_USER,
       to: 'ghajarmehrdad@gmail.com',
       subject: 'DiagnoVera Login Authorization Request',
@@ -97,17 +108,29 @@ export default async function handler(req, res) {
             </a>
           </div>
           <p style="color: #666; font-size: 14px;">This link will expire in 10 minutes.</p>
+          <div style="margin-top: 30px; padding: 10px; background: #f9f9f9; border-radius: 4px; font-size: 12px; color: #666;">
+            <p><strong>Debug Info:</strong></p>
+            <p>Base URL: ${baseUrl}</p>
+            <p>Token length: ${authToken.length} characters</p>
+            <p>Full link: ${authLink}</p>
+          </div>
         </div>
       `
     });
 
+    console.log('Email sent result:', emailResult.messageId);
     console.log(`Admin email sent successfully for user: ${email}`);
 
     return res.status(200).json({
       success: true,
       email: email,
       name: name,
-      message: 'Authorization request sent to admin'
+      message: 'Authorization request sent to admin',
+      debug: {
+        authLinkGenerated: true,
+        tokenLength: authToken.length,
+        baseUrl: baseUrl
+      }
     });
 
   } catch (error) {
