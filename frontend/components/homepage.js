@@ -34,8 +34,40 @@ export default function HomePage({ onAuthSuccess }) {
         if (onAuthSuccess) {
           onAuthSuccess({ token, email, name, image });
         } else {
-          router.push('/dashboard');
+          // FIXED: Redirect to correct main application page
+          router.push('/diagnoveraenterpriseinterface');
         }
+      }
+    }
+
+    // Check for session data from localStorage (set by authorize.js redirect)
+    const sessionData = localStorage.getItem('diagnovera_session');
+    if (sessionData) {
+      try {
+        const session = JSON.parse(sessionData);
+        if (session.authorized && session.email) {
+          console.log('Found existing session, redirecting...');
+          
+          // Set cookie for server-side auth
+          const sessionToken = btoa(JSON.stringify({
+            email: session.email,
+            name: session.name,
+            image: session.image,
+            authorizedAt: session.timestamp
+          }));
+          document.cookie = `authToken=${sessionToken}; path=/; max-age=86400`;
+          
+          if (onAuthSuccess) {
+            onAuthSuccess(session);
+          } else {
+            // FIXED: Redirect to correct main application page
+            router.push('/diagnoveraenterpriseinterface');
+          }
+          return;
+        }
+      } catch (error) {
+        console.error('Error parsing session data:', error);
+        localStorage.removeItem('diagnovera_session');
       }
     }
 
@@ -94,7 +126,8 @@ export default function HomePage({ onAuthSuccess }) {
       attempts++;
 
       try {
-        const response = await axios.post('/api/auth/check-authorization', {
+        // UPDATED: Use the new auth status API instead of check-authorization
+        const response = await axios.post('/api/auth/status', {
           email: email
         });
 
@@ -106,34 +139,36 @@ export default function HomePage({ onAuthSuccess }) {
           pollIntervalRef.current = null;
           setAwaitingAuth(false);
 
-          // Create session token
-          const sessionToken = btoa(JSON.stringify({
-            email: response.data.email,
-            name: response.data.name,
-            image: response.data.image,
-            authorizedAt: new Date().toISOString()
+          // Store session data from the API response
+          localStorage.setItem('diagnovera_session', JSON.stringify({
+            email: response.data.user.email,
+            name: response.data.user.name,
+            image: response.data.user.image,
+            authorized: true,
+            timestamp: Date.now()
           }));
 
-          // Store session data
-          localStorage.setItem('authToken', sessionToken);
-          localStorage.setItem('userEmail', response.data.email);
-          localStorage.setItem('userName', response.data.name || '');
-          localStorage.setItem('userImage', response.data.image || '');
-
           // Set cookie
-          document.cookie = `authToken=${sessionToken}; path=/; max-age=86400`;
+          document.cookie = `authToken=${response.data.sessionToken}; path=/; max-age=86400`;
 
           console.log('Calling onAuthSuccess');
           if (onAuthSuccess) {
-            onAuthSuccess(response.data);
+            onAuthSuccess(response.data.user);
           } else {
-            router.push('/diagnovera-enterprise');
+            // FIXED: Redirect to correct main application page
+            router.push('/diagnoveraenterpriseinterface');
           }
           return;
         }
 
       } catch (err) {
         console.error('Poll error:', err);
+        
+        // If it's a 401 error, continue polling (waiting for auth)
+        if (err.response?.status === 401) {
+          // This is expected while waiting for authorization
+          return;
+        }
         
         // If it's a 400 error (bad email), stop polling
         if (err.response?.status === 400) {
@@ -160,6 +195,7 @@ export default function HomePage({ onAuthSuccess }) {
     try {
       setError(''); // Clear any previous errors
       
+      // UPDATED: Use the correct API endpoint
       const res = await axios.post('/api/auth/google-signin', {
         credential: response.credential
       });
@@ -176,7 +212,14 @@ export default function HomePage({ onAuthSuccess }) {
       }
     } catch (err) {
       console.error('Google signin error:', err);
-      setError(err.response?.data?.message || 'Authentication failed');
+      
+      // Handle case where google-signin API might not exist
+      if (err.response?.status === 404) {
+        setError('Authentication system not fully configured. Please contact administrator.');
+      } else {
+        setError(err.response?.data?.message || 'Authentication failed');
+      }
+      
       setAwaitingAuth(false);
       
       // Clear any polling that might have started

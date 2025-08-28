@@ -17,7 +17,8 @@ export default function IndexPage() {
 
   const handleAuthSuccess = (userData) => {
     console.log('Auth success:', userData);
-    window.location.href = '/app';
+    // FIXED: Redirect to your actual main application page
+    window.location.href = '/diagnoveraenterpriseinterface';
   }
 
   if (!mounted) {
