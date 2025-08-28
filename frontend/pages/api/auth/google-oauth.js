@@ -67,7 +67,7 @@ export default async function handler(req, res) {
     const authLink = `${baseUrl}/api/auth/authorize?token=${authToken}`;
 
     // Email transporter
-    const transporter = nodemailer.createTransporter({
+    const transporter = nodemailer.createTransport({
       service: 'gmail',
       auth: {
         user: process.env.EMAIL_USER,
