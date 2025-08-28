@@ -173,53 +173,62 @@ export default function HomePage({ onAuthSuccess }) {
     }, 3000); // Poll every 3 seconds
   };
 
-  const handleGoogleResponse = async (response) => {
-    try {
-      setError('');
-      setUserMessage('Processing sign-in...');
-      
-      // Decode the Google JWT to get user info
-      const payload = JSON.parse(atob(response.credential.split('.')[1]));
-      const userEmail = payload.email;
-      const userName = payload.name;
-      const userImage = payload.picture;
+const handleGoogleResponse = async (response) => {
+  try {
+    setError('');
+    setUserMessage('Processing sign-in...');
 
-      console.log('Google sign-in successful for:', userEmail);
+    // Decode the Google JWT to get basic user info for display
+    const payload = JSON.parse(atob(response.credential.split('.')[1]));
+    const userEmail = payload.email;
+    const userName = payload.name;
 
-      // Only allow Gmail accounts
-      if (!userEmail.endsWith('@gmail.com')) {
-        setError('Only Gmail accounts are allowed. Please use a Gmail account.');
-        setUserMessage('');
-        return;
-      }
+    console.log('Google sign-in successful for:', userEmail);
 
-      // Store user info temporarily
-      setAuthEmail(userEmail);
-      setUserMessage(`Processing sign-in for ${userName}...`);
-
-      // Use NextAuth to trigger the admin email (this will "fail" but send the email)
-      const result = await signIn('google', {
-        redirect: false,
-        callbackUrl: '/'
-      });
-
-      console.log('NextAuth signIn result:', result);
-
-      // NextAuth will return an error because we return false in the signIn callback
-      // But the email should have been sent to the admin
-      setAwaitingAuth(true);
-      setUserMessage(`Admin notification sent for ${userName}. Waiting for approval...`);
-
-      // Start polling your Upstash Redis-based authorization status
-      pollAuthorization(userEmail);
-
-    } catch (err) {
-      console.error('Google signin error:', err);
-      setError('Authentication failed. Please try again.');
+    // Only allow Gmail accounts
+    if (!userEmail.endsWith('@gmail.com')) {
+      setError('Only Gmail accounts are allowed. Please use a Gmail account.');
       setUserMessage('');
-      setAwaitingAuth(false);
+      return;
     }
-  };
+
+    // Store user info temporarily
+    setAuthEmail(userEmail);
+    setUserMessage(`Processing sign-in for ${userName}...`);
+
+    // Send to our direct OAuth API instead of NextAuth
+    const result = await fetch('/api/auth/google-oauth', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        credential: response.credential
+      })
+    });
+
+    const data = await result.json();
+
+    if (!result.ok) {
+      throw new Error(data.message || 'Sign-in failed');
+    }
+
+    console.log('OAuth API response:', data);
+
+    // Start the authorization flow
+    setAwaitingAuth(true);
+    setUserMessage(`Admin notification sent for ${userName}. Waiting for approval...`);
+
+    // Start polling your Upstash Redis-based authorization status
+    pollAuthorization(userEmail);
+
+  } catch (err) {
+    console.error('Google signin error:', err);
+    setError('Authentication failed: ' + err.message);
+    setUserMessage('');
+    setAwaitingAuth(false);
+  }
+};
 
   // Function to cancel the authorization process
   const cancelAuthorization = () => {
