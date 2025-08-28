@@ -65,53 +65,25 @@ export const authOptions = {
                 </a>
               </div>
               <p style="color: #666; font-size: 14px;">This link will expire in 10 minutes.</p>
-              <hr style="border: none; border-top: 1px solid #e5e7eb; margin: 30px 0;">
-              <p style="color: #999; font-size: 12px;">If you did not expect this request, please ignore this email.</p>
             </div>
           `
         });
 
-        // Allow the sign-in to complete but don't create a session yet
-        // The user will wait for authorization
-        return true;
+        console.log(`Admin email sent for user: ${user.email}`);
+
+        // Prevent session creation - return false so user stays on homepage
+        return false;
 
       } catch (error) {
         console.error('Auth error:', error);
         return false;
       }
-    },
-    
-    async jwt({ token, user }) {
-      // Don't create a JWT token until user is authorized
-      if (user) {
-        token.email = user.email;
-        token.name = user.name;
-        token.image = user.image;
-      }
-      return token;
-    },
-    
-    async session({ session, token }) {
-      // Don't create a session until user is authorized
-      return session;
-    },
-
-    async redirect({ url, baseUrl }) {
-      // Always redirect back to home page after sign-in attempt
-      // The homepage will handle polling for authorization
-      return baseUrl;
     }
   },
-  
   pages: {
     signIn: '/',
-    error: '/?error=auth_error'
+    error: '/?error=auth_failed'
   },
-  
-  session: {
-    strategy: 'jwt'
-  },
-  
   secret: process.env.NEXTAUTH_SECRET
 };
 

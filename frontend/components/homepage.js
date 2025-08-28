@@ -93,6 +93,7 @@ export default function HomePage({ onAuthSuccess }) {
       console.log(`Poll attempt ${attempts} for ${email}`);
 
       try {
+        // Poll your Upstash Redis-based status API
         const response = await fetch('/api/auth/status', {
           method: 'POST',
           headers: {
@@ -101,9 +102,19 @@ export default function HomePage({ onAuthSuccess }) {
           body: JSON.stringify({ email: email })
         });
 
+        if (!response.ok) {
+          if (response.status === 401) {
+            // Still waiting for authorization - this is expected
+            const minutesWaited = Math.floor(attempts * 3 / 60);
+            setUserMessage(`Still waiting for admin approval... (${minutesWaited} min${minutesWaited !== 1 ? 's' : ''})`);
+            return;
+          }
+          throw new Error(`HTTP ${response.status}`);
+        }
+
         const data = await response.json();
 
-        if (response.ok && data.authorized) {
+        if (data.authorized) {
           console.log('Authorization confirmed for:', email);
           clearInterval(pollIntervalRef.current);
           pollIntervalRef.current = null;
@@ -119,7 +130,7 @@ export default function HomePage({ onAuthSuccess }) {
             timestamp: Date.now()
           }));
 
-          // Set cookie
+          // Set cookie for server-side checks
           document.cookie = `authToken=${data.sessionToken}; path=/; max-age=86400; samesite=strict`;
 
           // Small delay to show the message, then redirect
@@ -131,26 +142,19 @@ export default function HomePage({ onAuthSuccess }) {
             }
           }, 1500);
           return;
-        } else if (response.status === 401) {
-          // Still waiting for authorization - this is expected
-          const minutesWaited = Math.floor(attempts * 3 / 60);
-          setUserMessage(`Still waiting for approval... (${minutesWaited} min${minutesWaited !== 1 ? 's' : ''})`);
-          return;
-        } else {
-          throw new Error(data.message || 'Authorization check failed');
         }
 
       } catch (err) {
         console.log(`Poll attempt ${attempts} - error:`, err.message);
         
-        // If it's a network error or 401, continue polling
+        // Continue polling for common errors
         if (attempts < 10 || err.message.includes('401') || err.message.includes('Not authorized')) {
           const minutesWaited = Math.floor(attempts * 3 / 60);
-          setUserMessage(`Still waiting for approval... (${minutesWaited} min${minutesWaited !== 1 ? 's' : ''})`);
+          setUserMessage(`Still waiting for admin approval... (${minutesWaited} min${minutesWaited !== 1 ? 's' : ''})`);
           return;
         }
         
-        // Other persistent errors
+        // Stop on persistent errors
         console.error('Stopping polling due to error:', err);
         clearInterval(pollIntervalRef.current);
         pollIntervalRef.current = null;
@@ -174,7 +178,7 @@ export default function HomePage({ onAuthSuccess }) {
       setError('');
       setUserMessage('Processing sign-in...');
       
-      // Decode the JWT to get user info
+      // Decode the Google JWT to get user info
       const payload = JSON.parse(atob(response.credential.split('.')[1]));
       const userEmail = payload.email;
       const userName = payload.name;
@@ -189,24 +193,24 @@ export default function HomePage({ onAuthSuccess }) {
         return;
       }
 
-      // Trigger NextAuth signin to send admin email
+      // Store user info temporarily
+      setAuthEmail(userEmail);
+      setUserMessage(`Processing sign-in for ${userName}...`);
+
+      // Use NextAuth to trigger the admin email (this will "fail" but send the email)
       const result = await signIn('google', {
         redirect: false,
         callbackUrl: '/'
       });
 
-      if (result?.error) {
-        setError('Sign-in failed: ' + result.error);
-        setUserMessage('');
-        return;
-      }
+      console.log('NextAuth signIn result:', result);
 
-      // Start the authorization flow
+      // NextAuth will return an error because we return false in the signIn callback
+      // But the email should have been sent to the admin
       setAwaitingAuth(true);
-      setAuthEmail(userEmail);
-      setUserMessage(`Sign-in successful for ${userName}. Admin notification sent.`);
+      setUserMessage(`Admin notification sent for ${userName}. Waiting for approval...`);
 
-      // Start polling for authorization approval
+      // Start polling your Upstash Redis-based authorization status
       pollAuthorization(userEmail);
 
     } catch (err) {
@@ -426,6 +430,7 @@ export default function HomePage({ onAuthSuccess }) {
         </div>
       </section>
 
+      {/* Rest of the page content remains the same */}
       <section id="platform">
         <div className="container">
           <div className="badge" style={{color:'#4f46e5'}}>Platform</div>
