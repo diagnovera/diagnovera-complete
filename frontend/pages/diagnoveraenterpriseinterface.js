@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
-import { ChevronDown, X, Loader2, Download, RotateCcw, Brain, BarChart3, GitBranch, Type, Send, Wifi, WifiOff } from 'lucide-react';
+import { ChevronDown, X, Loader2, Download, RotateCcw, BarChart3, GitBranch, Type, Send, Wifi, WifiOff, LogOut } from 'lucide-react';
 
 // Configuration
 const config = {
@@ -8,28 +8,6 @@ const config = {
 };
 
 console.log('Backend URL:', config.BACKEND_URL);
-
-// Mock disease database
-const diseaseDatabase = {
-  'Myocardial Infarction': {
-    symptoms: ['chest pain', 'sweating', 'dyspnea', 'nausea', 'diaphoresis', 'radiating pain'],
-    labs: { 'Troponin': { min: 0.04, indicator: 'high' }, 'CK-MB': { min: 5, indicator: 'high' } },
-    vitals: { heartRate: { min: 100, max: 150 }, systolicBP: { min: 140 } },
-    prior: 0.05
-  },
-  'Pneumonia': {
-    symptoms: ['cough', 'fever', 'dyspnea', 'chills', 'fatigue', 'sputum'],
-    labs: { 'WBC': { min: 12, indicator: 'high' }, 'CRP': { min: 10, indicator: 'high' } },
-    vitals: { temperature: { min: 100.4 }, respiratoryRate: { min: 22 } },
-    prior: 0.10
-  },
-  'Heart Failure': {
-    symptoms: ['dyspnea', 'orthopnea', 'edema', 'fatigue', 'weakness', 'pnd'],
-    labs: { 'BNP': { min: 100, indicator: 'high' }, 'Troponin': { min: 0.02, indicator: 'high' } },
-    vitals: { o2Saturation: { max: 92 }, respiratoryRate: { min: 20 } },
-    prior: 0.08
-  }
-};
 
 const findSimilarDiseases = (symptomString) => {
   return [];
@@ -951,8 +929,8 @@ const ComplexPlaneChart = React.memo(({ data, showConnections, showLabels, selec
   );
 });
 
-// Kuramoto Analysis
-const KuramotoAnalysis = ({ data }) => {
+// Kuramoto Analysis with AI-responsive interpretation
+const KuramotoAnalysis = ({ data, n8nResults }) => {
   const svgRef = useRef(null);
   const animationRef = useRef(null);
   const [orderParameter, setOrderParameter] = useState(0);
@@ -968,6 +946,36 @@ const KuramotoAnalysis = ({ data }) => {
   }, []);
 
   const hasData = data && Object.keys(data).length > 0 && Object.values(data).flat().length > 0;
+
+  // Auto-adjust coupling based on AI results
+  useEffect(() => {
+    if (n8nResults) {
+      let aiCoupling = 0.8; // default
+      
+      // Adjust based on urgency level
+      if (n8nResults.urgency_level === 'EMERGENT') {
+        aiCoupling = 0.2; // Low coupling for emergency states
+      } else if (n8nResults.urgency_level === 'URGENT') {
+        aiCoupling = 0.5; // Moderate coupling for urgent cases
+      } else if (n8nResults.urgency_level === 'SEMI-URGENT') {
+        aiCoupling = 0.7; // Good coupling for semi-urgent
+      } else if (n8nResults.urgency_level === 'ROUTINE') {
+        aiCoupling = 1.0; // Strong coupling for routine/stable cases
+      }
+
+      // Adjust based on confidence level
+      if (n8nResults.confidence && n8nResults.confidence < 0.5) {
+        aiCoupling *= 0.7; // Reduce coupling if AI is less confident
+      }
+
+      // Adjust based on critical findings
+      if (n8nResults.critical_findings && n8nResults.critical_findings.red_flags && n8nResults.critical_findings.red_flags.length > 0) {
+        aiCoupling *= 0.5; // Significantly reduce coupling for red flags
+      }
+
+      setCoupling(aiCoupling);
+    }
+  }, [n8nResults]);
 
   useEffect(() => {
     if (!hasData) return;
@@ -1144,10 +1152,12 @@ const KuramotoAnalysis = ({ data }) => {
     };
   }, [oscillators, coupling, isRunning, d3Module]);
 
-  // Clinical interpretation
+  // AI-responsive clinical interpretation
   const getClinicalInterpretation = () => {
+    let baseInterpretation;
+    
     if (coupling < 0.3) {
-      return {
+      baseInterpretation = {
         state: "Decoupled State",
         color: "#e74c3c",
         interpretation: "Low physiological integration. Body systems operating independently.",
@@ -1160,7 +1170,7 @@ const KuramotoAnalysis = ({ data }) => {
         ]
       };
     } else if (coupling < 0.7) {
-      return {
+      baseInterpretation = {
         state: "Partial Synchronization",
         color: "#f39c12",
         interpretation: "Moderate physiological coupling. Some systems coordinating while others remain independent.",
@@ -1173,7 +1183,7 @@ const KuramotoAnalysis = ({ data }) => {
         ]
       };
     } else if (coupling < 1.2) {
-      return {
+      baseInterpretation = {
         state: "Healthy Synchronization",
         color: "#27ae60",
         interpretation: "Optimal physiological integration. Body systems working in coordinated harmony.",
@@ -1186,7 +1196,7 @@ const KuramotoAnalysis = ({ data }) => {
         ]
       };
     } else {
-      return {
+      baseInterpretation = {
         state: "Hyper-synchronization",
         color: "#9b59b6",
         interpretation: "Excessive coupling. Systems locked in rigid patterns with reduced adaptability.",
@@ -1199,6 +1209,23 @@ const KuramotoAnalysis = ({ data }) => {
         ]
       };
     }
+
+    // Modify interpretation based on AI results
+    if (n8nResults) {
+      if (n8nResults.urgency_level === 'EMERGENT') {
+        baseInterpretation.aiContext = `AI Analysis: EMERGENT case detected. System decoupling may reflect critical instability.`;
+      } else if (n8nResults.urgency_level === 'URGENT') {
+        baseInterpretation.aiContext = `AI Analysis: URGENT case. Reduced coupling suggests active pathophysiology.`;
+      } else if (n8nResults.urgency_level === 'ROUTINE') {
+        baseInterpretation.aiContext = `AI Analysis: ROUTINE case. Coupling strength indicates stable physiological state.`;
+      }
+
+      if (n8nResults.confidence && n8nResults.confidence < 0.5) {
+        baseInterpretation.aiContext += ` Low AI confidence (${(n8nResults.confidence * 100).toFixed(0)}%) suggests complex presentation.`;
+      }
+    }
+
+    return baseInterpretation;
   };
 
   const interpretation = getClinicalInterpretation();
@@ -1244,6 +1271,11 @@ const KuramotoAnalysis = ({ data }) => {
           />
           <span className="text-xs w-8">{coupling.toFixed(1)}</span>
         </div>
+        {n8nResults && (
+          <div className="text-xs text-blue-600 bg-blue-50 p-2 rounded">
+            AI-adjusted coupling based on {n8nResults.urgency_level} urgency level
+          </div>
+        )}
         <button
           onClick={() => setIsRunning(!isRunning)}
           className={`w-full py-2 text-xs font-bold rounded ${
@@ -1283,6 +1315,13 @@ const KuramotoAnalysis = ({ data }) => {
               ))}
             </div>
           </div>
+
+          {interpretation.aiContext && (
+            <div className="mt-2 p-2 bg-blue-50 rounded">
+              <span className="font-semibold text-blue-800">AI Context:</span>
+              <p className="text-blue-700 mt-1">{interpretation.aiContext}</p>
+            </div>
+          )}
         </div>
 
         <div className="mt-3 p-2 bg-gray-100 rounded text-xs">
@@ -1294,9 +1333,8 @@ const KuramotoAnalysis = ({ data }) => {
   );
 };
 
-// Bayesian Analysis Component
-const BayesianAnalysis = ({ patientData, processedData, suspectedDiagnoses = [] }) => {
-  const [localDiseaseDatabase, setLocalDiseaseDatabase] = useState(diseaseDatabase);
+// Updated Bayesian Analysis Component - uses n8nResults instead of mock database
+const BayesianAnalysis = ({ patientData, processedData, suspectedDiagnoses = [], n8nResults }) => {
   const svgRef = useRef(null);
   const [d3Module, setD3Module] = useState(null);
 
@@ -1308,166 +1346,60 @@ const BayesianAnalysis = ({ patientData, processedData, suspectedDiagnoses = [] 
 
   const hasData = patientData && processedData && Object.values(processedData).flat().length > 0;
 
-  useEffect(() => {
-    if (!hasData) return;
-
-    const newDiseases = {};
-
-    suspectedDiagnoses.forEach(diagnosis => {
-      if (!localDiseaseDatabase[diagnosis]) {
-        newDiseases[diagnosis] = {
-          symptoms: patientData.subjective.symptoms.slice(0, 5),
-          labs: {},
-          vitals: {},
-          prior: 0.03,
-          isUserAdded: true
-        };
-
-        patientData.objective.laboratory.forEach(lab => {
-          if (lab.value) {
-            newDiseases[diagnosis].labs[lab.name] = {
-              value: parseFloat(lab.value),
-              indicator: 'check'
-            };
-          }
-        });
-      }
-    });
-
-    const symptomString = patientData.subjective.symptoms.join(' ');
-    const similarDiseases = findSimilarDiseases(symptomString);
-
-    if (Array.isArray(similarDiseases)) {
-      similarDiseases.slice(0, 3).forEach(({ disease, similarity }) => {
-        if (disease && !localDiseaseDatabase[disease] && similarity > 0.3) {
-          if (diseaseDatabase[disease]) {
-            newDiseases[disease] = {
-              ...diseaseDatabase[disease],
-              isSimilarityBased: true,
-              similarity: similarity
-            };
-          }
-        }
-      });
-    }
-
-    if (Object.keys(newDiseases).length > 0) {
-      setLocalDiseaseDatabase(prev => ({ ...prev, ...newDiseases }));
-    }
-  }, [suspectedDiagnoses, patientData, hasData]);
-
-  const calculateLikelihood = useCallback((disease, diseaseInfo, data) => {
-    let likelihood = 1.0;
-    let matchCount = 0;
-    let totalChecks = 0;
-
-    if (diseaseInfo.isUserAdded && suspectedDiagnoses.includes(disease)) {
-      likelihood *= 2.0;
-    }
-
-    if (data.subjective.chiefComplaint) {
-      const complaint = data.subjective.chiefComplaint.toLowerCase();
-      if (Array.isArray(diseaseInfo.symptoms)) {
-        diseaseInfo.symptoms.forEach(symptom => {
-          totalChecks++;
-          if (complaint.includes(symptom)) {
-            likelihood *= 2.5;
-            matchCount++;
-          }
-        });
-      }
-    }
-
-    const symptoms = data.subjective.symptoms || [];
-    if (Array.isArray(symptoms)) {
-      symptoms.forEach(patientSymptom => {
-        const symptomLower = patientSymptom.toLowerCase();
-        if (Array.isArray(diseaseInfo.symptoms)) {
-          diseaseInfo.symptoms.forEach(diseaseSymptom => {
-            totalChecks++;
-            if (symptomLower.includes(diseaseSymptom) || diseaseSymptom.includes(symptomLower)) {
-              likelihood *= 1.8;
-              matchCount++;
-            }
-          });
-        }
-      });
-    }
-
-    const vitals = data.objective.vitals || {};
-    Object.entries(diseaseInfo.vitals || {}).forEach(([vital, criteria]) => {
-      totalChecks++;
-      const value = parseFloat(vitals[vital]);
-      if (!isNaN(value)) {
-        let matches = false;
-        if (criteria.min && value >= criteria.min) matches = true;
-        if (criteria.max && value <= criteria.max) matches = true;
-        if (matches) {
-          likelihood *= 2.0;
-          matchCount++;
-        }
-      }
-    });
-
-    const labs = data.objective.laboratory || [];
-    labs.forEach(lab => {
-      if (lab.name && lab.value && diseaseInfo.labs && diseaseInfo.labs[lab.name]) {
-        totalChecks++;
-        const criteria = diseaseInfo.labs[lab.name];
-        const value = parseFloat(lab.value);
-        if (!isNaN(value)) {
-          let matches = false;
-          if (criteria.min && value >= criteria.min) matches = true;
-          if (criteria.max && value <= criteria.max) matches = true;
-          if (criteria.indicator === 'abnormal' && (value < criteria.min || value > criteria.max)) matches = true;
-          if (matches) {
-            likelihood *= 3.0;
-            matchCount++;
-          }
-        }
-      }
-    });
-
-    const matchRatio = totalChecks > 0 ? matchCount / totalChecks : 0;
-    likelihood *= (1 + matchRatio);
-
-    return Math.min(likelihood, 10);
-  }, [suspectedDiagnoses]);
-
+  // Extract probabilities from n8nResults instead of calculating manually
   const posteriorProbabilities = useMemo(() => {
     if (!hasData) return [];
 
-    const likelihoods = {};
-    let totalEvidence = 0;
+    let results = [];
 
-    Object.entries(localDiseaseDatabase).forEach(([disease, diseaseInfo]) => {
-      const likelihood = calculateLikelihood(disease, diseaseInfo, patientData);
-      likelihoods[disease] = likelihood;
-      totalEvidence += diseaseInfo.prior * likelihood;
+    // Use n8n results if available
+    if (n8nResults && n8nResults.diagnoses) {
+      results = n8nResults.diagnoses.map((diagnosis, idx) => {
+        let probability = 0.1; // default
+        let confidence = 0.5; // default
+        
+        if (typeof diagnosis === 'object') {
+          probability = diagnosis.probability || diagnosis.confidence || (0.9 - idx * 0.15);
+          confidence = diagnosis.confidence || diagnosis.probability || 0.5;
+        } else {
+          // String diagnosis, assign decreasing probability
+          probability = 0.9 - idx * 0.15;
+        }
+
+        return {
+          disease: typeof diagnosis === 'object' ? (diagnosis.description || diagnosis.condition || diagnosis) : diagnosis,
+          probability: Math.max(0.01, probability),
+          likelihood: confidence * 10,
+          prior: 0.05,
+          isAIDerived: true
+        };
+      }).slice(0, 5);
+    }
+
+    // Add suspected diagnoses if not in n8n results
+    suspectedDiagnoses.forEach(diagnosis => {
+      if (!results.find(r => r.disease === diagnosis)) {
+        results.push({
+          disease: diagnosis,
+          probability: 0.3,
+          likelihood: 3.0,
+          prior: 0.03,
+          isUserAdded: true
+        });
+      }
     });
 
-    const posteriors = {};
-    Object.entries(localDiseaseDatabase).forEach(([disease, diseaseInfo]) => {
-      posteriors[disease] = totalEvidence > 0
-        ? (diseaseInfo.prior * likelihoods[disease]) / totalEvidence
-        : diseaseInfo.prior;
-    });
-
-    const sorted = Object.entries(posteriors)
-      .sort((a, b) => b[1] - a[1])
-      .map(([disease, prob]) => ({
-        disease,
-        probability: prob,
-        likelihood: likelihoods[disease],
-        prior: localDiseaseDatabase[disease].prior,
-        isUserAdded: localDiseaseDatabase[disease].isUserAdded
+    // Normalize probabilities
+    const totalProb = results.reduce((sum, r) => sum + r.probability, 0);
+    if (totalProb > 0) {
+      results = results.map(r => ({
+        ...r,
+        probability: r.probability / totalProb
       }));
+    }
 
-    const top5 = sorted.filter(d => !d.isUserAdded).slice(0, 5);
-    const significantUserAdded = sorted.filter(d => d.isUserAdded && d.probability > 0.01);
-
-    return [...top5, ...significantUserAdded];
-  }, [patientData, localDiseaseDatabase, suspectedDiagnoses, calculateLikelihood, hasData]);
+    return results.sort((a, b) => b.probability - a.probability).slice(0, 8);
+  }, [patientData, suspectedDiagnoses, n8nResults, hasData]);
 
   useEffect(() => {
     if (!svgRef.current || posteriorProbabilities.length === 0 || !hasData || !d3Module) return;
@@ -1475,7 +1407,7 @@ const BayesianAnalysis = ({ patientData, processedData, suspectedDiagnoses = [] 
     const svg = d3Module.select(svgRef.current);
     svg.selectAll("*").remove();
 
-    const margin = { top: 40, right: 20, bottom: 120, left: 50 };
+    const margin = { top: 40, right: 40, bottom: 120, left: 60 }; // Increased margins
     const width = 450 - margin.left - margin.right;
     const height = 350 - margin.top - margin.bottom;
 
@@ -1491,17 +1423,17 @@ const BayesianAnalysis = ({ patientData, processedData, suspectedDiagnoses = [] 
       .range([height, 0])
       .domain([0, Math.max(...posteriorProbabilities.map(d => d.probability))]);
 
-    const gradientCore = svg.append("defs")
+    const gradientAI = svg.append("defs")
       .append("linearGradient")
-      .attr("id", "bar-gradient-core")
+      .attr("id", "bar-gradient-ai")
       .attr("x1", "0%").attr("y1", "0%")
       .attr("x2", "0%").attr("y2", "100%");
 
-    gradientCore.append("stop")
+    gradientAI.append("stop")
       .attr("offset", "0%")
       .attr("stop-color", "#4a90e2");
 
-    gradientCore.append("stop")
+    gradientAI.append("stop")
       .attr("offset", "100%")
       .attr("stop-color", "#357abd");
 
@@ -1527,7 +1459,7 @@ const BayesianAnalysis = ({ patientData, processedData, suspectedDiagnoses = [] 
       .attr("width", x.bandwidth())
       .attr("y", height)
       .attr("height", 0)
-      .attr("fill", d => d.isUserAdded ? "url(#bar-gradient-user)" : "url(#bar-gradient-core)")
+      .attr("fill", d => d.isUserAdded ? "url(#bar-gradient-user)" : "url(#bar-gradient-ai)")
       .transition()
       .duration(750)
       .attr("y", d => y(d.probability))
@@ -1551,9 +1483,9 @@ const BayesianAnalysis = ({ patientData, processedData, suspectedDiagnoses = [] 
       .attr("text-anchor", "middle")
       .attr("font-size", "8px")
       .attr("fill", "#666")
-      .text(d => `L: ${d.likelihood.toFixed(2)}`);
+      .text(d => d.isAIDerived ? 'AI' : `L: ${d.likelihood.toFixed(2)}`);
 
-    // X axis
+    // X axis with proper spacing
     g.append("g")
       .attr("transform", `translate(0,${height})`)
       .call(d3Module.axisBottom(x))
@@ -1561,7 +1493,8 @@ const BayesianAnalysis = ({ patientData, processedData, suspectedDiagnoses = [] 
       .attr("transform", "rotate(-45)")
       .style("text-anchor", "end")
       .attr("dx", "-.8em")
-      .attr("dy", ".15em");
+      .attr("dy", ".15em")
+      .style("font-size", "9px");
 
     // Y axis
     g.append("g")
@@ -1574,33 +1507,33 @@ const BayesianAnalysis = ({ patientData, processedData, suspectedDiagnoses = [] 
       .attr("text-anchor", "middle")
       .attr("font-size", "14px")
       .attr("font-weight", "bold")
-      .text("Bayesian Disease Probability Analysis");
+      .text("AI-Enhanced Diagnostic Probability Analysis");
 
-    // Legend
+    // Legend with proper positioning
     const legend = svg.append("g")
-      .attr("transform", `translate(${width + margin.left - 100}, 40)`);
+      .attr("transform", `translate(${width + margin.left - 80}, 40)`);
 
     legend.append("rect")
-      .attr("width", 15)
-      .attr("height", 15)
-      .attr("fill", "url(#bar-gradient-core)");
+      .attr("width", 12)
+      .attr("height", 12)
+      .attr("fill", "url(#bar-gradient-ai)");
 
     legend.append("text")
-      .attr("x", 20)
-      .attr("y", 12)
-      .attr("font-size", "10px")
-      .text("Core DB");
+      .attr("x", 16)
+      .attr("y", 10)
+      .attr("font-size", "9px")
+      .text("AI Results");
 
     legend.append("rect")
-      .attr("y", 20)
-      .attr("width", 15)
-      .attr("height", 15)
+      .attr("y", 18)
+      .attr("width", 12)
+      .attr("height", 12)
       .attr("fill", "url(#bar-gradient-user)");
 
     legend.append("text")
-      .attr("x", 20)
-      .attr("y", 32)
-      .attr("font-size", "10px")
+      .attr("x", 16)
+      .attr("y", 28)
+      .attr("font-size", "9px")
       .text("Suspected");
 
   }, [posteriorProbabilities, hasData, d3Module]);
@@ -1608,7 +1541,7 @@ const BayesianAnalysis = ({ patientData, processedData, suspectedDiagnoses = [] 
   if (!hasData || !d3Module) {
     return (
       <div className="bg-white border-2 border-gray-300 p-4">
-        <h3 className="text-sm font-bold mb-3">Bayesian Disease Analysis</h3>
+        <h3 className="text-sm font-bold mb-3">AI-Enhanced Diagnostic Analysis</h3>
         <div className="h-64 flex items-center justify-center text-gray-500 text-sm">
           {!d3Module ? (
             <Loader2 className="h-8 w-8 animate-spin text-gray-400" />
@@ -1622,23 +1555,34 @@ const BayesianAnalysis = ({ patientData, processedData, suspectedDiagnoses = [] 
 
   return (
     <div className="bg-white border-2 border-gray-300 p-4">
-      <h3 className="text-sm font-bold mb-3">Bayesian Disease Analysis</h3>
+      <h3 className="text-sm font-bold mb-3">AI-Enhanced Diagnostic Analysis</h3>
       <svg ref={svgRef} width={450} height={350} />
       <div className="mt-4 space-y-2 text-xs">
-        <div className="font-semibold">Top Differential Diagnoses:</div>
+        <div className="font-semibold">
+          {n8nResults ? 'AI-Generated Differential Diagnoses:' : 'Top Differential Diagnoses:'}
+        </div>
         {posteriorProbabilities.slice(0, 5).map((result, idx) => (
           <div key={idx} className="flex justify-between items-center p-2 bg-gray-50 rounded">
-            <span className={`font-medium ${result.isUserAdded ? 'text-purple-600' : ''}`}>
+            <span className={`font-medium ${result.isUserAdded ? 'text-purple-600' : result.isAIDerived ? 'text-blue-600' : ''}`}>
               {idx + 1}. {result.disease}
+              {result.isAIDerived && <span className="ml-1 text-xs text-blue-500">(AI)</span>}
             </span>
             <div className="text-right">
               <span className="font-bold">{(result.probability * 100).toFixed(1)}%</span>
-              <span className="text-gray-500 ml-2">
-                (Prior: {(result.prior * 100).toFixed(1)}%)
-              </span>
+              {!result.isAIDerived && (
+                <span className="text-gray-500 ml-2">
+                  (Prior: {(result.prior * 100).toFixed(1)}%)
+                </span>
+              )}
             </div>
           </div>
         ))}
+        {n8nResults && n8nResults.confidence && (
+          <div className="mt-2 p-2 bg-blue-50 rounded">
+            <span className="font-semibold text-blue-800">AI Confidence:</span>
+            <span className="ml-2 text-blue-700">{(n8nResults.confidence * 100).toFixed(0)}%</span>
+          </div>
+        )}
       </div>
     </div>
   );
@@ -1681,7 +1625,7 @@ const N8nResultsDisplay = ({ results }) => {
               {results.diagnoses.map((diagnosis, idx) => (
                 <li key={idx} className="text-sm text-gray-700">
                   {typeof diagnosis === 'object' ?
-                    `${diagnosis.description || diagnosis.condition} ${diagnosis.icd10_code ? `(${diagnosis.icd10_code})` : ''} - ${(diagnosis.probability * 100 || diagnosis.confidence * 100 || 0).toFixed(0)}% confidence` :
+                    `${diagnosis.description || diagnosis.condition || diagnosis} ${diagnosis.icd10_code ? `(${diagnosis.icd10_code})` : ''} - ${(diagnosis.probability * 100 || diagnosis.confidence * 100 || 0).toFixed(0)}% confidence` :
                     diagnosis
                   }
                 </li>
@@ -2190,6 +2134,34 @@ const DiagnoVeraEnterpriseInterface = () => {
     setError(null);
   };
 
+  const handleLogout = () => {
+    // Clear all session data
+    resetForm();
+    
+    // Clear any stored authentication tokens
+    localStorage.removeItem('dvera_auth_token');
+    localStorage.removeItem('dvera_user_session');
+    localStorage.removeItem('dvera_login_timestamp');
+    sessionStorage.clear();
+    
+    // Clear any cached data
+    dataCache.clear();
+    
+    // Disconnect WebSocket
+    websocketService.disconnect();
+    
+    // Clear browser cache and redirect to landing page
+    if (typeof window !== 'undefined') {
+      // Clear cookies related to authentication
+      document.cookie = 'dvera_session=; expires=Thu, 01 Jan 1970 00:00:00 UTC; path=/;';
+      document.cookie = 'dvera_auth=; expires=Thu, 01 Jan 1970 00:00:00 UTC; path=/;';
+      
+      // Force page reload and redirect to landing/login page
+      window.location.href = '/';  // Redirects to index.js
+      // Alternative: window.location.reload();
+    }
+  };
+
   const exportData = () => {
     const exportObj = {
       timestamp: new Date().toISOString(),
@@ -2213,41 +2185,114 @@ const DiagnoVeraEnterpriseInterface = () => {
   return (
     <div className="min-h-screen bg-gray-100 p-4">
       <div className="max-w-7xl mx-auto">
-        {/* Header */}
-        <div className="bg-white shadow-md rounded-lg p-4 mb-4">
-          <div className="flex justify-between items-center">
-            <div className="flex items-center gap-2">
-              <Brain className="h-8 w-8 text-blue-600" />
-              <h1 className="text-2xl font-bold text-gray-800">DiagnoVera Enterprise</h1>
-              <span className="text-sm text-gray-500">Clinical Decision Support System</span>
-            </div>
-            <div className="flex items-center gap-4">
-              <div className="flex items-center gap-2">
-                {n8nStatus === 'connected' ? (
-                  <Wifi className="h-4 w-4 text-green-500" />
-                ) : n8nStatus === 'offline' ? (
-                  <WifiOff className="h-4 w-4 text-yellow-500" />
-                ) : (
-                  <WifiOff className="h-4 w-4 text-red-500" />
-                )}
-                <span className="text-xs text-gray-600">
-                  {n8nStatus === 'offline' ? 'Offline Mode' : `n8n: ${n8nStatus}`}
-                </span>
+        {/* Epic-Style Header */}
+        <div className="bg-gradient-to-r from-blue-600 via-blue-700 to-blue-800 shadow-lg mb-4">
+          <div className="px-6 py-4">
+            <div className="flex justify-between items-center">
+              <div className="flex items-center space-x-6">
+                {/* DVERA Trademark Logo */}
+                <div className="flex items-center">
+                  <div className="bg-white rounded-lg p-2 shadow-sm">
+                    <div className="text-blue-600 font-black text-2xl tracking-tight">
+                      DVERA<span className="text-xs align-super">™</span>
+                    </div>
+                  </div>
+                  <div className="ml-4 text-white">
+                    <h1 className="text-xl font-semibold tracking-wide">DiagnoVera Enterprise</h1>
+                    <p className="text-blue-100 text-sm font-medium">Clinical Decision Support System</p>
+                  </div>
+                </div>
+                
+                {/* Epic-style Navigation Tabs */}
+                <div className="hidden md:flex space-x-1 ml-8">
+                  <div className="bg-blue-500 text-white px-4 py-2 rounded-t-lg text-sm font-medium border-b-2 border-white">
+                    Patient Analysis
+                  </div>
+                  <div className="text-blue-200 hover:text-white px-4 py-2 text-sm font-medium cursor-pointer transition-colors">
+                    Reports
+                  </div>
+                  <div className="text-blue-200 hover:text-white px-4 py-2 text-sm font-medium cursor-pointer transition-colors">
+                    Settings
+                  </div>
+                </div>
               </div>
-              <button
-                onClick={resetForm}
-                className="flex items-center gap-2 px-3 py-1 bg-gray-500 text-white rounded hover:bg-gray-600"
-              >
-                <RotateCcw size={14} />
-                Reset
-              </button>
-              <button
-                onClick={exportData}
-                className="flex items-center gap-2 px-3 py-1 bg-blue-500 text-white rounded hover:bg-blue-600"
-              >
-                <Download size={14} />
-                Export
-              </button>
+              
+              {/* Epic-style Right Panel */}
+              <div className="flex items-center space-x-4">
+                {/* Connection Status with Epic styling */}
+                <div className="flex items-center bg-blue-500 rounded-lg px-3 py-1.5">
+                  {n8nStatus === 'connected' ? (
+                    <>
+                      <div className="w-2 h-2 bg-green-400 rounded-full mr-2 animate-pulse"></div>
+                      <Wifi className="h-3 w-3 text-white mr-1" />
+                      <span className="text-xs text-white font-medium">AI Connected</span>
+                    </>
+                  ) : n8nStatus === 'offline' ? (
+                    <>
+                      <div className="w-2 h-2 bg-yellow-400 rounded-full mr-2"></div>
+                      <WifiOff className="h-3 w-3 text-white mr-1" />
+                      <span className="text-xs text-white font-medium">Offline Mode</span>
+                    </>
+                  ) : (
+                    <>
+                      <div className="w-2 h-2 bg-red-400 rounded-full mr-2"></div>
+                      <WifiOff className="h-3 w-3 text-white mr-1" />
+                      <span className="text-xs text-white font-medium">Disconnected</span>
+                    </>
+                  )}
+                </div>
+
+                {/* Epic-style Action Buttons */}
+                <div className="flex space-x-2">
+                  <button
+                    onClick={resetForm}
+                    className="flex items-center space-x-1 bg-white bg-opacity-10 hover:bg-opacity-20 text-white px-3 py-1.5 rounded-md text-xs font-medium transition-all border border-white border-opacity-20"
+                  >
+                    <RotateCcw size={12} />
+                    <span>Reset</span>
+                  </button>
+                  <button
+                    onClick={exportData}
+                    className="flex items-center space-x-1 bg-white bg-opacity-10 hover:bg-opacity-20 text-white px-3 py-1.5 rounded-md text-xs font-medium transition-all border border-white border-opacity-20"
+                  >
+                    <Download size={12} />
+                    <span>Export</span>
+                  </button>
+                  <button
+                    onClick={handleLogout}
+                    className="flex items-center space-x-1 bg-red-600 bg-opacity-80 hover:bg-opacity-100 text-white px-3 py-1.5 rounded-md text-xs font-medium transition-all border border-red-500"
+                  >
+                    <LogOut size={12} />
+                    <span>Logout</span>
+                  </button>
+                </div>
+
+                {/* Epic-style User Info */}
+                <div className="hidden lg:flex items-center space-x-2 text-white">
+                  <div className="w-8 h-8 bg-blue-400 rounded-full flex items-center justify-center">
+                    <span className="text-xs font-semibold">MD</span>
+                  </div>
+                  <div className="text-xs">
+                    <div className="font-medium">Dr. Clinician</div>
+                    <div className="text-blue-200">Internal Medicine</div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+          
+          {/* Epic-style Sub-navigation Bar */}
+          <div className="border-t border-blue-500 mt-4 pt-2">
+            <div className="flex items-center justify-between text-xs">
+              <div className="flex space-x-4 text-blue-200">
+                <span className="text-white font-medium">Analysis Dashboard</span>
+                <span className="hover:text-white cursor-pointer transition-colors">Complex Analysis</span>
+                <span className="hover:text-white cursor-pointer transition-colors">Kuramoto Sync</span>
+                <span className="hover:text-white cursor-pointer transition-colors">Bayesian Inference</span>
+              </div>
+              <div className="text-blue-200">
+                <span>{new Date().toLocaleDateString()} • {new Date().toLocaleTimeString()}</span>
+              </div>
             </div>
           </div>
         </div>
@@ -2519,13 +2564,14 @@ const DiagnoVeraEnterpriseInterface = () => {
             {/* Analysis Grid */}
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
               {/* Kuramoto Analysis */}
-              <KuramotoAnalysis data={processedData} />
+              <KuramotoAnalysis data={processedData} n8nResults={n8nResults} />
 
               {/* Bayesian Analysis */}
               <BayesianAnalysis
                 patientData={patientData}
                 processedData={processedData}
                 suspectedDiagnoses={suspectedDiagnoses}
+                n8nResults={n8nResults}
               />
             </div>
 
