@@ -23,7 +23,7 @@ export default function Diagnostic() {
 
       try {
         // Check if main component can be imported
-        const DiagnoVera = await import('../components/DiagnoVeraEnterpriseInterface')
+       const DiagnoVera = await import('./diagnoveraenterpriseinterface')
         results.mainComponent = DiagnoVera.default ? '✓ Default export found' : '✗ No default export'
       } catch (err) {
         results.mainComponent = `✗ Error: ${err.message}`

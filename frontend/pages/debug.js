@@ -17,7 +17,7 @@ export default function Debug() {
       <h2>Component Load Test:</h2>
       <button 
         onClick={() => {
-          import('../components/DiagnoVeraEnterpriseInterface')
+          import('./diagnoveraenterpriseinterface')
             .then(mod => {
               console.log('Component loaded:', mod);
               alert('Component loaded successfully! Check console for details.');

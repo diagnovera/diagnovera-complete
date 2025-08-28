@@ -4,7 +4,7 @@ import { useRouter } from 'next/router';
 import dynamic from 'next/dynamic';
 
 const DiagnoVeraEnterpriseInterface = dynamic(
-  () => import('../components/DiagnoVeraEnterpriseInterface'),
+  () => import('./diagnoveraenterpriseinterface'),
   {
     ssr: false,
     loading: () => (
