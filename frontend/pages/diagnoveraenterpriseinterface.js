@@ -1,5 +1,3 @@
-'use client';
-
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { ChevronDown, X, Loader2, Download, RotateCcw, Brain, BarChart3, GitBranch, Type, Send, Wifi, WifiOff } from 'lucide-react';
 
@@ -152,100 +150,6 @@ class WebSocketService {
 
 const websocketService = new WebSocketService();
 
-// n8n Service
-const n8nService = {
-  async sendToN8n(patientData, processedData) {
-    try {
-      const payload = {
-        patient_id: patientData.demographics.mrn || 'unknown',
-        timestamp: new Date().toISOString(),
-        text: `${patientData.subjective.chiefComplaint}. Patient reports: ${patientData.subjective.symptoms.join(', ')}`,
-        demographics: {
-          age: patientData.demographics.age,
-          sex: patientData.demographics.sex
-        },
-        symptoms: patientData.subjective.symptoms,
-        chief_complaint: patientData.subjective.chiefComplaint,
-        vitals: patientData.objective.vitals,
-        laboratory: patientData.objective.laboratory,
-        imaging: patientData.objective.imaging,
-        medications: patientData.subjective.medications,
-        allergies: patientData.subjective.allergyHistory,
-        medical_history: patientData.subjective.pastMedicalHistory,
-        nlp_results: {
-          entities: [
-            ...patientData.subjective.symptoms.map(symptom => ({
-              type: 'symptom',
-              value: symptom,
-              confidence: 0.85
-            })),
-            ...patientData.subjective.medications.map(med => ({
-              type: 'medication',
-              value: med,
-              confidence: 0.90
-            }))
-          ],
-          confidence: {
-            overall: 0.82
-          }
-        },
-        complex_analysis: {
-          total_data_points: Object.values(processedData).flat().length,
-          domains: Object.keys(processedData),
-          complex_plane_data: processedData
-        }
-      };
-
-      console.log('Sending to n8n - Full payload:');
-      console.log(JSON.stringify(payload, null, 2));
-
-      const response = await fetch(config.N8N_WEBHOOK_URL, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify(payload)
-      });
-
-      console.log('Response status:', response.status);
-      console.log('Response headers:', response.headers);
-
-      // Get response as text first to debug
-      const responseText = await response.text();
-      console.log('Response text:', responseText);
-
-      // Try to parse as JSON
-      let data;
-      try {
-        data = JSON.parse(responseText);
-      } catch (parseError) {
-        console.error('Failed to parse response as JSON:', parseError);
-        console.log('Raw response:', responseText);
-
-        // Check if it's the "Workflow was started" message
-        if (responseText.includes('Workflow was started')) {
-          throw new Error('n8n workflow is not configured to return results. Check webhook settings.');
-        }
-
-        // Return a default response if parsing fails
-        data = {
-          error: true,
-          message: 'Invalid response from n8n',
-          raw_response: responseText,
-          patient_id: payload.patient_id
-        };
-      }
-
-      console.log('n8n response - Parsed data:', data);
-      return data;
-
-    } catch (error) {
-      console.error('Error sending to n8n:', error);
-      throw error;
-    }
-  }
-};
-
 // Data cache
 const dataCache = new Map();
 
@@ -259,7 +163,8 @@ const getFallbackData = (dataFile) => {
     past_surgical_history: ['Appendectomy', 'Cholecystectomy', 'Knee arthroscopy', 'Hernia repair'],
     laboratory_tests: ['Complete Blood Count', 'Basic Metabolic Panel', 'Troponin', 'BNP', 'D-dimer', 'CRP'],
     imaging_studies: ['Chest X-ray', 'CT Chest', 'Echocardiogram', 'EKG', 'MRI Brain'],
-    diagnoses: ['Acute MI', 'Pneumonia', 'Heart Failure', 'COPD Exacerbation', 'Pulmonary Embolism']
+    diagnoses: ['Acute MI', 'Pneumonia', 'Heart Failure', 'COPD Exacerbation', 'Pulmonary Embolism'],
+    chief_complaint: ['Chest pain', 'Shortness of breath', 'Abdominal pain', 'Headache', 'Fever', 'Nausea', 'Dizziness', 'Fatigue']
   };
 
   return fallbacks[dataFile] || [];
@@ -1739,7 +1644,7 @@ const BayesianAnalysis = ({ patientData, processedData, suspectedDiagnoses = [] 
   );
 };
 
-// Replace the N8nResultsDisplay component with this improved version:
+// N8n Results Display Component
 const N8nResultsDisplay = ({ results }) => {
   const [displayFormat, setDisplayFormat] = useState('bullets');
 
@@ -2119,141 +2024,141 @@ const DiagnoVeraEnterpriseInterface = () => {
     processDataToComplexPlane();
   }, [patientData, processDataToComplexPlane]);
 
-// Replace the submitToN8n function (around line 1971) with this:
-const submitToN8n = async () => {
-  setIsProcessing(true);
-  setError(null);
-  setN8nStatus('processing');
+  // Submit to n8n function
+  const submitToN8n = async () => {
+    setIsProcessing(true);
+    setError(null);
+    setN8nStatus('processing');
 
-  try {
-    // Ensure we have at least some clinical data
-    if (!patientData.subjective.chiefComplaint &&
-        (!patientData.subjective.symptoms || patientData.subjective.symptoms.length === 0)) {
-      setError('Please enter a chief complaint or select at least one symptom');
-      setN8nStatus('error');
-      return;
-    }
-
-    // Send to n8n webhook
-    const payload = {
-      // Patient identification
-      patient_id: patientData.demographics.mrn || `TEMP-${Date.now()}`,
-      timestamp: new Date().toISOString(),
-
-      // Demographics
-      age: patientData.demographics.age || '',
-      gender: patientData.demographics.sex || 'Unknown',
-      demographics: {
-        mrn: patientData.demographics.mrn || `TEMP-${Date.now()}`,
-        age: patientData.demographics.age || '',
-        sex: patientData.demographics.sex || 'Unknown'
-      },
-
-      // Clinical data - ensure proper format
-      chief_complaint: patientData.subjective.chiefComplaint || '',
-      symptoms: patientData.subjective.symptoms || [],
-
-      // Additional clinical context
-      text: `${patientData.subjective.chiefComplaint || 'No chief complaint'}. Patient reports: ${(patientData.subjective.symptoms || []).join(', ') || 'No specific symptoms'}`,
-
-      // Vitals
-      vitals: patientData.objective.vitals || {},
-
-      // History and medications
-      medications: patientData.subjective.medications || [],
-      allergies: patientData.subjective.allergyHistory || [],
-      medical_history: patientData.subjective.pastMedicalHistory || [],
-
-      // Diagnostic data
-      laboratory: patientData.objective.laboratory || [],
-      imaging: patientData.objective.imaging || [],
-
-      // Complex analysis
-      complex_analysis: processedData || {},
-
-      // Include nested structure as well (in case n8n expects it)
-      subjective: {
-        chiefComplaint: patientData.subjective.chiefComplaint || '',
-        symptoms: patientData.subjective.symptoms || [],
-        medications: patientData.subjective.medications || [],
-        allergyHistory: patientData.subjective.allergyHistory || [],
-        pastMedicalHistory: patientData.subjective.pastMedicalHistory || [],
-        pastSurgicalHistory: patientData.subjective.pastSurgicalHistory || []
-      },
-      objective: {
-        vitals: patientData.objective.vitals || {},
-        laboratory: patientData.objective.laboratory || [],
-        imaging: patientData.objective.imaging || []
+    try {
+      // Ensure we have at least some clinical data
+      if (!patientData.subjective.chiefComplaint &&
+          (!patientData.subjective.symptoms || patientData.subjective.symptoms.length === 0)) {
+        setError('Please enter a chief complaint or select at least one symptom');
+        setN8nStatus('error');
+        return;
       }
-    };
 
-    console.log('Sending to n8n:', payload);
-    console.log('Chief complaint:', payload.chief_complaint);
-    console.log('Symptoms count:', payload.symptoms.length);
+      // Send to n8n webhook
+      const payload = {
+        // Patient identification
+        patient_id: patientData.demographics.mrn || `TEMP-${Date.now()}`,
+        timestamp: new Date().toISOString(),
 
-    const response = await fetch(config.N8N_WEBHOOK_URL, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify(payload)
-    });
+        // Demographics
+        age: patientData.demographics.age || '',
+        gender: patientData.demographics.sex || 'Unknown',
+        demographics: {
+          mrn: patientData.demographics.mrn || `TEMP-${Date.now()}`,
+          age: patientData.demographics.age || '',
+          sex: patientData.demographics.sex || 'Unknown'
+        },
 
-    if (!response.ok) {
-      throw new Error(`HTTP error! status: ${response.status}`);
-    }
+        // Clinical data - ensure proper format
+        chief_complaint: patientData.subjective.chiefComplaint || '',
+        symptoms: patientData.subjective.symptoms || [],
 
-    const result = await response.json();
-    console.log('n8n response:', result);
+        // Additional clinical context
+        text: `${patientData.subjective.chiefComplaint || 'No chief complaint'}. Patient reports: ${(patientData.subjective.symptoms || []).join(', ') || 'No specific symptoms'}`,
 
-    // Set the results immediately
-    setN8nResults({
-      diagnoses: result.diagnoses || result.diagnosis_list || [],
-      recommendations: result.recommendations || [],
-      labs_to_order: result.labs_to_order || [],
-      confidence: result.confidence || 0,
-      summary: result.summary || 'Analysis complete',
-      urgency_level: result.urgency_level || 'ROUTINE',
-      critical_findings: result.critical_findings || {},
-      diagnostic_report: result.diagnostic_report || {},
-      timestamp: new Date().toISOString()
-    });
+        // Vitals
+        vitals: patientData.objective.vitals || {},
 
-    setN8nStatus('completed');
+        // History and medications
+        medications: patientData.subjective.medications || [],
+        allergies: patientData.subjective.allergyHistory || [],
+        medical_history: patientData.subjective.pastMedicalHistory || [],
 
-    // Update suspected diagnoses if we got any
-    if (result.diagnoses && result.diagnoses.length > 0) {
-      setSuspectedDiagnoses(prev => {
-        const newDiagnoses = result.diagnoses.filter(d => !prev.includes(d));
-        return [...prev, ...newDiagnoses];
+        // Diagnostic data
+        laboratory: patientData.objective.laboratory || [],
+        imaging: patientData.objective.imaging || [],
+
+        // Complex analysis
+        complex_analysis: processedData || {},
+
+        // Include nested structure as well (in case n8n expects it)
+        subjective: {
+          chiefComplaint: patientData.subjective.chiefComplaint || '',
+          symptoms: patientData.subjective.symptoms || [],
+          medications: patientData.subjective.medications || [],
+          allergyHistory: patientData.subjective.allergyHistory || [],
+          pastMedicalHistory: patientData.subjective.pastMedicalHistory || [],
+          pastSurgicalHistory: patientData.subjective.pastSurgicalHistory || []
+        },
+        objective: {
+          vitals: patientData.objective.vitals || {},
+          laboratory: patientData.objective.laboratory || [],
+          imaging: patientData.objective.imaging || []
+        }
+      };
+
+      console.log('Sending to n8n:', payload);
+      console.log('Chief complaint:', payload.chief_complaint);
+      console.log('Symptoms count:', payload.symptoms.length);
+
+      const response = await fetch(config.N8N_WEBHOOK_URL, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(payload)
       });
-    }
 
-  } catch (err) {
-    console.error('Error submitting to n8n:', err);
-    setError(`Failed to analyze: ${err.message}`);
-    setN8nStatus('error');
+      if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`);
+      }
 
-    // Provide mock results for testing if n8n fails
-    if (patientData.subjective.symptoms.length > 0) {
+      const result = await response.json();
+      console.log('n8n response:', result);
+
+      // Set the results immediately
       setN8nResults({
-        diagnoses: ['Differential diagnosis pending', 'Further evaluation needed'],
-        recommendations: [
-          'Complete physical examination',
-          'Review vital signs trend',
-          'Consider additional testing'
-        ],
-        labs_to_order: ['CBC', 'BMP', 'Urinalysis'],
-        confidence: 0.5,
-        summary: 'Analysis completed locally due to connection error',
-        urgency_level: 'ROUTINE',
+        diagnoses: result.diagnoses || result.diagnosis_list || [],
+        recommendations: result.recommendations || [],
+        labs_to_order: result.labs_to_order || [],
+        confidence: result.confidence || 0,
+        summary: result.summary || 'Analysis complete',
+        urgency_level: result.urgency_level || 'ROUTINE',
+        critical_findings: result.critical_findings || {},
+        diagnostic_report: result.diagnostic_report || {},
         timestamp: new Date().toISOString()
       });
+
+      setN8nStatus('completed');
+
+      // Update suspected diagnoses if we got any
+      if (result.diagnoses && result.diagnoses.length > 0) {
+        setSuspectedDiagnoses(prev => {
+          const newDiagnoses = result.diagnoses.filter(d => !prev.includes(d));
+          return [...prev, ...newDiagnoses];
+        });
+      }
+
+    } catch (err) {
+      console.error('Error submitting to n8n:', err);
+      setError(`Failed to analyze: ${err.message}`);
+      setN8nStatus('error');
+
+      // Provide mock results for testing if n8n fails
+      if (patientData.subjective.symptoms.length > 0) {
+        setN8nResults({
+          diagnoses: ['Differential diagnosis pending', 'Further evaluation needed'],
+          recommendations: [
+            'Complete physical examination',
+            'Review vital signs trend',
+            'Consider additional testing'
+          ],
+          labs_to_order: ['CBC', 'BMP', 'Urinalysis'],
+          confidence: 0.5,
+          summary: 'Analysis completed locally due to connection error',
+          urgency_level: 'ROUTINE',
+          timestamp: new Date().toISOString()
+        });
+      }
+    } finally {
+      setIsProcessing(false);
     }
-  } finally {
-    setIsProcessing(false);
-  }
-};
+  };
 
   const resetForm = () => {
     setPatientData({
@@ -2388,14 +2293,14 @@ const submitToN8n = async () => {
             <div className="bg-white shadow rounded-lg p-4">
               <h2 className="text-lg font-bold mb-3">Subjective Data</h2>
               <EpicAutocompleteField
-  label="Chief Complaint"
-  dataFile="chief_complaint"
-  value={patientData.subjective.chiefComplaint}
-  onChange={(value) => updateSubjective('chiefComplaint', value)}
-  placeholder="Select chief complaint..."
-  multiple={false}
-  color="#e74c3c"
-/>
+                label="Chief Complaint"
+                dataFile="chief_complaint"
+                value={patientData.subjective.chiefComplaint}
+                onChange={(value) => updateSubjective('chiefComplaint', value)}
+                placeholder="Select chief complaint..."
+                multiple={false}
+                color="#e74c3c"
+              />
 
               <EpicAutocompleteField
                 label="Symptoms"
