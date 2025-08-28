@@ -16,16 +16,20 @@ export default async function handler(req, res) {
   }
 
   try {
+    console.log('Checking authorization status for:', email);
+
     // Check Redis for authorization
     const authDataStr = await redis.get(`auth:${email}`);
     
     if (!authDataStr) {
+      console.log('No authorization found for:', email);
       return res.status(401).json({ 
         authorized: false, 
         message: 'Not authorized. Please wait for admin approval.' 
       });
     }
 
+    console.log('Auth data found:', authDataStr);
     const authData = JSON.parse(authDataStr);
 
     if (!authData.authorized) {
@@ -61,6 +65,8 @@ export default async function handler(req, res) {
       { expiresIn: '24h' }
     );
 
+    console.log('Authorization confirmed for:', email);
+
     res.status(200).json({
       authorized: true,
       user: {
@@ -76,6 +82,7 @@ export default async function handler(req, res) {
     console.error('Error checking auth status:', error);
     res.status(500).json({ 
       error: 'Internal server error',
+      message: error.message,
       authorized: false 
     });
   }
