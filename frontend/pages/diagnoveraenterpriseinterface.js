@@ -1,5 +1,44 @@
-import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
+import React, { useState, useEffect, useRef, useCallback, useMemo, Component } from 'react';
 import { ChevronDown, X, Loader2, Download, RotateCcw, BarChart3, GitBranch, Type, Send, Wifi, WifiOff, LogOut } from 'lucide-react';
+
+// Error Boundary Component
+class ErrorBoundary extends Component {
+  constructor(props) {
+    super(props);
+    this.state = { hasError: false, error: null };
+  }
+
+  static getDerivedStateFromError(error) {
+    return { hasError: true, error };
+  }
+
+  componentDidCatch(error, errorInfo) {
+    console.error('Component error:', error, errorInfo);
+  }
+
+  render() {
+    if (this.state.hasError) {
+      return (
+        <div className="min-h-screen bg-gray-100 flex items-center justify-center p-4">
+          <div className="bg-white rounded-lg shadow-lg p-6 max-w-md w-full">
+            <h2 className="text-lg font-bold text-red-600 mb-4">Application Error</h2>
+            <p className="text-gray-700 mb-4">
+              Something went wrong while loading the application. Please refresh the page to try again.
+            </p>
+            <button 
+              onClick={() => window.location.reload()} 
+              className="w-full bg-blue-500 text-white px-4 py-2 rounded hover:bg-blue-600"
+            >
+              Refresh Page
+            </button>
+          </div>
+        </div>
+      );
+    }
+
+    return this.props.children;
+  }
+}
 
 // Configuration
 const config = {
@@ -21,6 +60,9 @@ class D3Module {
       this.loadPromise = import('d3').then(module => {
         this.instance = module;
         return module;
+      }).catch(error => {
+        console.error('Failed to load D3:', error);
+        return null;
       });
     }
     
@@ -28,7 +70,7 @@ class D3Module {
   }
 }
 
-// WebSocket Service
+// WebSocket Service with better error handling
 class WebSocketService {
   constructor() {
     this.socket = null;
@@ -47,6 +89,7 @@ class WebSocketService {
 
     if (typeof window === 'undefined') {
       console.warn('WebSocket can only be initialized in browser environment');
+      this.isConnecting = false;
       return;
     }
 
@@ -83,8 +126,12 @@ class WebSocketService {
       });
 
       this.socket.on('claude_update', (data) => {
-        if (this.callbacks.onClaudeUpdate) {
-          this.callbacks.onClaudeUpdate(data);
+        try {
+          if (this.callbacks.onClaudeUpdate) {
+            this.callbacks.onClaudeUpdate(data);
+          }
+        } catch (error) {
+          console.error('Error handling claude_update:', error);
         }
       });
 
@@ -102,9 +149,13 @@ class WebSocketService {
   }
 
   disconnect() {
-    if (this.socket) {
-      this.socket.disconnect();
-      this.socket = null;
+    try {
+      if (this.socket) {
+        this.socket.disconnect();
+        this.socket = null;
+      }
+    } catch (error) {
+      console.error('Error disconnecting WebSocket:', error);
     }
     this.isConnecting = false;
   }
@@ -314,7 +365,7 @@ export const preloadDataFiles = (files) => {
   });
 };
 
-// Enhanced EpicAutocompleteField component
+// Enhanced EpicAutocompleteField component with error handling
 const EpicAutocompleteField = ({
   label,
   dataFile,
@@ -333,16 +384,23 @@ const EpicAutocompleteField = ({
   const { data: options, loading, error } = useDataLoader(dataFile);
 
   const filteredOptions = useMemo(() => {
-    if (!searchTerm || searchTerm.length === 0) {
-      return options.slice(0, maxResults);
+    try {
+      if (!Array.isArray(options)) return [];
+      
+      if (!searchTerm || searchTerm.length === 0) {
+        return options.slice(0, maxResults);
+      }
+
+      const lowerSearchTerm = searchTerm.toLowerCase();
+      const filtered = options
+        .filter(option => option && option.toLowerCase().includes(lowerSearchTerm))
+        .slice(0, maxResults);
+
+      return filtered;
+    } catch (err) {
+      console.error('Error filtering options:', err);
+      return [];
     }
-
-    const lowerSearchTerm = searchTerm.toLowerCase();
-    const filtered = options
-      .filter(option => option.toLowerCase().includes(lowerSearchTerm))
-      .slice(0, maxResults);
-
-    return filtered;
   }, [searchTerm, options, maxResults]);
 
   useEffect(() => {
@@ -356,27 +414,35 @@ const EpicAutocompleteField = ({
   }, []);
 
   const handleSelect = useCallback((option) => {
-    if (multiple) {
-      const newValue = Array.isArray(value) ? value : [];
-      const updatedValue = newValue.includes(option)
-        ? newValue.filter(v => v !== option)
-        : [...newValue, option];
-      onChange(updatedValue);
-      setSearchTerm("");
-    } else {
-      onChange(option);
-      setIsOpen(false);
-      setSearchTerm("");
-    }
-    if (inputRef.current) {
-      inputRef.current.value = "";
+    try {
+      if (multiple) {
+        const newValue = Array.isArray(value) ? value : [];
+        const updatedValue = newValue.includes(option)
+          ? newValue.filter(v => v !== option)
+          : [...newValue, option];
+        onChange(updatedValue);
+        setSearchTerm("");
+      } else {
+        onChange(option);
+        setIsOpen(false);
+        setSearchTerm("");
+      }
+      if (inputRef.current) {
+        inputRef.current.value = "";
+      }
+    } catch (err) {
+      console.error('Error handling selection:', err);
     }
   }, [multiple, value, onChange]);
 
   const removeItem = useCallback((item, e) => {
-    e.stopPropagation();
-    const newValue = Array.isArray(value) ? value.filter(v => v !== item) : [];
-    onChange(newValue);
+    try {
+      e.stopPropagation();
+      const newValue = Array.isArray(value) ? value.filter(v => v !== item) : [];
+      onChange(newValue);
+    } catch (err) {
+      console.error('Error removing item:', err);
+    }
   }, [value, onChange]);
 
   const displayValue = Array.isArray(value) ? value : (value ? [value] : []);
@@ -496,7 +562,7 @@ const EpicAutocompleteField = ({
   );
 };
 
-// Imaging Field Component
+// Imaging Field Component with error handling
 const EpicImagingField = ({
   label,
   dataFile,
@@ -532,43 +598,61 @@ const EpicImagingField = ({
   }, [searchTerm, debounceMs]);
 
   const filteredOptions = useMemo(() => {
-    if (!debouncedSearchTerm) return options.slice(0, maxResults);
+    try {
+      if (!Array.isArray(options)) return [];
+      if (!debouncedSearchTerm) return options.slice(0, maxResults);
 
-    const lowerSearchTerm = debouncedSearchTerm.toLowerCase();
-    const filtered = [];
+      const lowerSearchTerm = debouncedSearchTerm.toLowerCase();
+      const filtered = [];
 
-    for (let i = 0; i < options.length && filtered.length < maxResults; i++) {
-      if (options[i].toLowerCase().includes(lowerSearchTerm)) {
-        filtered.push(options[i]);
+      for (let i = 0; i < options.length && filtered.length < maxResults; i++) {
+        if (options[i] && options[i].toLowerCase().includes(lowerSearchTerm)) {
+          filtered.push(options[i]);
+        }
       }
-    }
 
-    return filtered;
+      return filtered;
+    } catch (err) {
+      console.error('Error filtering imaging options:', err);
+      return [];
+    }
   }, [debouncedSearchTerm, options, maxResults]);
 
   const handleSelect = useCallback((option) => {
-    const currentImaging = Array.isArray(value) ? value : [];
-    if (!currentImaging.find(img => img.study === option)) {
-      onChange([...currentImaging, { study: option, findings: '' }]);
-    }
-    setIsOpen(false);
-    setSearchTerm('');
-    setDebouncedSearchTerm('');
-    const input = dropdownRef.current?.querySelector('input[type="text"]');
-    if (input) {
-      input.value = '';
+    try {
+      const currentImaging = Array.isArray(value) ? value : [];
+      if (!currentImaging.find(img => img.study === option)) {
+        onChange([...currentImaging, { study: option, findings: '' }]);
+      }
+      setIsOpen(false);
+      setSearchTerm('');
+      setDebouncedSearchTerm('');
+      const input = dropdownRef.current?.querySelector('input[type="text"]');
+      if (input) {
+        input.value = '';
+      }
+    } catch (err) {
+      console.error('Error handling imaging selection:', err);
     }
   }, [value, onChange]);
 
   const updateFindings = useCallback((study, findings) => {
-    const currentImaging = Array.isArray(value) ? value : [];
-    onChange(currentImaging.map(img =>
-      img.study === study ? { ...img, findings } : img
-    ));
+    try {
+      const currentImaging = Array.isArray(value) ? value : [];
+      onChange(currentImaging.map(img =>
+        img.study === study ? { ...img, findings } : img
+      ));
+    } catch (err) {
+      console.error('Error updating findings:', err);
+    }
   }, [value, onChange]);
 
   const removeItem = useCallback((study) => {
-    onChange((Array.isArray(value) ? value : []).filter(img => img.study !== study));
+    try {
+      onChange((Array.isArray(value) ? value : []).filter(img => img.study !== study));
+    } catch (err) {
+      console.error('Error removing imaging item:', err);
+    }
   }, [value, onChange]);
 
   const displayImaging = Array.isArray(value) ? value : [];
@@ -658,7 +742,7 @@ const EpicImagingField = ({
   );
 };
 
-// Lab Field Component
+// Lab Field Component with error handling
 const EpicLabField = ({
   label,
   dataFile,
@@ -694,43 +778,61 @@ const EpicLabField = ({
   }, [searchTerm, debounceMs]);
 
   const filteredOptions = useMemo(() => {
-    if (!debouncedSearchTerm) return options.slice(0, maxResults);
+    try {
+      if (!Array.isArray(options)) return [];
+      if (!debouncedSearchTerm) return options.slice(0, maxResults);
 
-    const lowerSearchTerm = debouncedSearchTerm.toLowerCase();
-    const filtered = [];
+      const lowerSearchTerm = debouncedSearchTerm.toLowerCase();
+      const filtered = [];
 
-    for (let i = 0; i < options.length && filtered.length < maxResults; i++) {
-      if (options[i].toLowerCase().includes(lowerSearchTerm)) {
-        filtered.push(options[i]);
+      for (let i = 0; i < options.length && filtered.length < maxResults; i++) {
+        if (options[i] && options[i].toLowerCase().includes(lowerSearchTerm)) {
+          filtered.push(options[i]);
+        }
       }
-    }
 
-    return filtered;
+      return filtered;
+    } catch (err) {
+      console.error('Error filtering lab options:', err);
+      return [];
+    }
   }, [debouncedSearchTerm, options, maxResults]);
 
   const handleSelect = useCallback((option) => {
-    const currentLabs = Array.isArray(value) ? value : [];
-    if (!currentLabs.find(lab => lab.name === option)) {
-      onChange([...currentLabs, { name: option, value: '', unit: '' }]);
-    }
-    setIsOpen(false);
-    setSearchTerm('');
-    setDebouncedSearchTerm('');
-    const input = dropdownRef.current?.querySelector('input[type="text"]');
-    if (input) {
-      input.value = '';
+    try {
+      const currentLabs = Array.isArray(value) ? value : [];
+      if (!currentLabs.find(lab => lab.name === option)) {
+        onChange([...currentLabs, { name: option, value: '', unit: '' }]);
+      }
+      setIsOpen(false);
+      setSearchTerm('');
+      setDebouncedSearchTerm('');
+      const input = dropdownRef.current?.querySelector('input[type="text"]');
+      if (input) {
+        input.value = '';
+      }
+    } catch (err) {
+      console.error('Error handling lab selection:', err);
     }
   }, [value, onChange]);
 
   const updateLabValue = useCallback((labName, field, fieldValue) => {
-    const currentLabs = Array.isArray(value) ? value : [];
-    onChange(currentLabs.map(lab =>
-      lab.name === labName ? { ...lab, [field]: fieldValue } : lab
-    ));
+    try {
+      const currentLabs = Array.isArray(value) ? value : [];
+      onChange(currentLabs.map(lab =>
+        lab.name === labName ? { ...lab, [field]: fieldValue } : lab
+      ));
+    } catch (err) {
+      console.error('Error updating lab value:', err);
+    }
   }, [value, onChange]);
 
   const removeItem = useCallback((labName) => {
-    onChange((Array.isArray(value) ? value : []).filter(lab => lab.name !== labName));
+    try {
+      onChange((Array.isArray(value) ? value : []).filter(lab => lab.name !== labName));
+    } catch (err) {
+      console.error('Error removing lab item:', err);
+    }
   }, [value, onChange]);
 
   const displayLabs = Array.isArray(value) ? value : [];
@@ -823,193 +925,201 @@ const EpicLabField = ({
   );
 };
 
-// Complex Plane Visualization
+// Complex Plane Visualization with error handling
 const ComplexPlaneChart = React.memo(({ data, showConnections, showLabels, selectedDomains }) => {
   const svgRef = useRef(null);
   const [d3Module, setD3Module] = useState(null);
 
   useEffect(() => {
     D3Module.load().then(d3 => {
-      setD3Module(d3);
+      if (d3) {
+        setD3Module(d3);
+      }
+    }).catch(error => {
+      console.error('Failed to load D3 for ComplexPlaneChart:', error);
     });
   }, []);
 
   useEffect(() => {
     if (!svgRef.current || !data || !d3Module) return;
 
-    const svg = d3Module.select(svgRef.current);
-    svg.selectAll("*").remove();
+    try {
+      const svg = d3Module.select(svgRef.current);
+      svg.selectAll("*").remove();
 
-    const width = 500;
-    const height = 500;
-    const margin = 60;
-    const radius = Math.min(width, height) / 2 - margin;
-    const centerX = width / 2;
-    const centerY = height / 2;
+      const width = 500;
+      const height = 500;
+      const margin = 60;
+      const radius = Math.min(width, height) / 2 - margin;
+      const centerX = width / 2;
+      const centerY = height / 2;
 
-    const g = svg.append("g")
-      .attr("transform", `translate(${centerX},${centerY})`);
+      const g = svg.append("g")
+        .attr("transform", `translate(${centerX},${centerY})`);
 
-    // Background
-    g.append("rect")
-      .attr("x", -width/2)
-      .attr("y", -height/2)
-      .attr("width", width)
-      .attr("height", height)
-      .attr("fill", "#f8f9fa");
+      // Background
+      g.append("rect")
+        .attr("x", -width/2)
+        .attr("y", -height/2)
+        .attr("width", width)
+        .attr("height", height)
+        .attr("fill", "#f8f9fa");
 
-    // Grid circles
-    [0.2, 0.4, 0.6, 0.8, 1.0].forEach(r => {
-      g.append("circle")
-        .attr("r", radius * r)
-        .attr("fill", "none")
-        .attr("stroke", "#ddd")
-        .attr("stroke-width", 1)
-        .attr("stroke-dasharray", r === 1 ? "0" : "3,3");
+      // Grid circles
+      [0.2, 0.4, 0.6, 0.8, 1.0].forEach(r => {
+        g.append("circle")
+          .attr("r", radius * r)
+          .attr("fill", "none")
+          .attr("stroke", "#ddd")
+          .attr("stroke-width", 1)
+          .attr("stroke-dasharray", r === 1 ? "0" : "3,3");
+
+        g.append("text")
+          .attr("x", 5)
+          .attr("y", -radius * r + 3)
+          .attr("font-size", "9px")
+          .attr("fill", "#666")
+          .text(`${r.toFixed(1)}`);
+      });
+
+      // Axes
+      g.append("line")
+        .attr("x1", -radius)
+        .attr("y1", 0)
+        .attr("x2", radius)
+        .attr("y2", 0)
+        .attr("stroke", "#999")
+        .attr("stroke-width", 1);
+
+      g.append("line")
+        .attr("x1", 0)
+        .attr("y1", -radius)
+        .attr("x2", 0)
+        .attr("y2", radius)
+        .attr("stroke", "#999")
+        .attr("stroke-width", 1);
+
+      // Angle lines
+      for (let angle = 0; angle < 360; angle += 30) {
+        const radian = angle * Math.PI / 180;
+        g.append("line")
+          .attr("x1", 0)
+          .attr("y1", 0)
+          .attr("x2", radius * Math.cos(radian))
+          .attr("y2", radius * Math.sin(radian))
+          .attr("stroke", "#eee")
+          .attr("stroke-width", 0.5);
+      }
+
+      // Labels
+      g.append("text")
+        .attr("x", radius + 10)
+        .attr("y", 5)
+        .attr("font-size", "10px")
+        .attr("fill", "#666")
+        .text("Real");
 
       g.append("text")
-        .attr("x", 5)
-        .attr("y", -radius * r + 3)
-        .attr("font-size", "9px")
+        .attr("x", -5)
+        .attr("y", -radius - 5)
+        .attr("font-size", "10px")
         .attr("fill", "#666")
-        .text(`${r.toFixed(1)}`);
-    });
+        .attr("text-anchor", "end")
+        .text("Imaginary");
 
-    // Axes
-    g.append("line")
-      .attr("x1", -radius)
-      .attr("y1", 0)
-      .attr("x2", radius)
-      .attr("y2", 0)
-      .attr("stroke", "#999")
-      .attr("stroke-width", 1);
-
-    g.append("line")
-      .attr("x1", 0)
-      .attr("y1", -radius)
-      .attr("x2", 0)
-      .attr("y2", radius)
-      .attr("stroke", "#999")
-      .attr("stroke-width", 1);
-
-    // Angle lines
-    for (let angle = 0; angle < 360; angle += 30) {
-      const radian = angle * Math.PI / 180;
-      g.append("line")
-        .attr("x1", 0)
-        .attr("y1", 0)
-        .attr("x2", radius * Math.cos(radian))
-        .attr("y2", radius * Math.sin(radian))
-        .attr("stroke", "#eee")
-        .attr("stroke-width", 0.5);
-    }
-
-    // Labels
-    g.append("text")
-      .attr("x", radius + 10)
-      .attr("y", 5)
-      .attr("font-size", "10px")
-      .attr("fill", "#666")
-      .text("Real");
-
-    g.append("text")
-      .attr("x", -5)
-      .attr("y", -radius - 5)
-      .attr("font-size", "10px")
-      .attr("fill", "#666")
-      .attr("text-anchor", "end")
-      .text("Imaginary");
-
-    // Collect all points
-    let allPoints = [];
-    Object.entries(data).forEach(([domain, points]) => {
-      if (Array.isArray(points) && points.length > 0) {
-        if (selectedDomains === 'all' || selectedDomains === domain) {
-          allPoints = allPoints.concat(points);
+      // Collect all points
+      let allPoints = [];
+      Object.entries(data).forEach(([domain, points]) => {
+        if (Array.isArray(points) && points.length > 0) {
+          if (selectedDomains === 'all' || selectedDomains === domain) {
+            allPoints = allPoints.concat(points);
+          }
         }
+      });
+
+      if (allPoints.length === 0) return;
+
+      // Convert points to coordinates
+      const coordinates = allPoints.map(p => {
+        const angle = p.angle * Math.PI / 180;
+        return {
+          x: radius * p.magnitude * Math.cos(angle),
+          y: radius * p.magnitude * Math.sin(angle),
+          data: p
+        };
+      });
+
+      // Sort points by angle for smooth curve
+      coordinates.sort((a, b) => a.data.angle - b.data.angle);
+
+      // Connection smooth curve using cardinal spline
+      if (showConnections && coordinates.length > 2) {
+        const closedCoordinates = [...coordinates, coordinates[0]];
+
+        const line = d3Module.line()
+          .x(d => d.x)
+          .y(d => d.y)
+          .curve(d3Module.curveCardinalClosed.tension(0.5));
+
+        g.append("path")
+          .datum(closedCoordinates)
+          .attr("d", line)
+          .attr("fill", "rgba(74, 144, 226, 0.1)")
+          .attr("stroke", "#4a90e2")
+          .attr("stroke-width", 2);
       }
-    });
 
-    if (allPoints.length === 0) return;
+      // Draw points
+      allPoints.forEach((point, i) => {
+        const angle = point.angle * Math.PI / 180;
+        const x = radius * point.magnitude * Math.cos(angle);
+        const y = radius * point.magnitude * Math.sin(angle);
 
-    // Convert points to coordinates
-    const coordinates = allPoints.map(p => {
-      const angle = p.angle * Math.PI / 180;
-      return {
-        x: radius * p.magnitude * Math.cos(angle),
-        y: radius * p.magnitude * Math.sin(angle),
-        data: p
-      };
-    });
+        // Connection line
+        g.append("line")
+          .attr("x1", 0)
+          .attr("y1", 0)
+          .attr("x2", x)
+          .attr("y2", y)
+          .attr("stroke", point.color)
+          .attr("stroke-width", 2)
+          .attr("opacity", 0.6);
 
-    // Sort points by angle for smooth curve
-    coordinates.sort((a, b) => a.data.angle - b.data.angle);
+        // Point circle
+        const pointG = g.append("g")
+          .attr("transform", `translate(${x},${y})`);
 
-    // Connection smooth curve using cardinal spline
-    if (showConnections && coordinates.length > 2) {
-      const closedCoordinates = [...coordinates, coordinates[0]];
+        pointG.append("circle")
+          .attr("r", 6)
+          .attr("fill", point.color)
+          .attr("stroke", "white")
+          .attr("stroke-width", 2)
+          .style("cursor", "pointer");
 
-      const line = d3Module.line()
-        .x(d => d.x)
-        .y(d => d.y)
-        .curve(d3Module.curveCardinalClosed.tension(0.5));
+        // Tooltip on hover
+        pointG.append("title")
+          .text(`${point.name}\nReal: ${point.real.toFixed(3)}\nImaginary: ${point.imaginary.toFixed(3)}\nMagnitude: ${point.magnitude.toFixed(3)}\nAngle: ${point.angle}°`);
 
-      g.append("path")
-        .datum(closedCoordinates)
-        .attr("d", line)
-        .attr("fill", "rgba(74, 144, 226, 0.1)")
-        .attr("stroke", "#4a90e2")
-        .attr("stroke-width", 2);
+        // Label
+        if (showLabels && point.name) {
+          pointG.append("text")
+            .attr("y", -10)
+            .attr("text-anchor", "middle")
+            .attr("font-size", "8px")
+            .attr("fill", "#333")
+            .attr("font-weight", "500")
+            .text(point.name.length > 12 ? point.name.substring(0, 12) + '...' : point.name);
+        }
+      });
+
+      // Center point
+      g.append("circle")
+        .attr("r", 4)
+        .attr("fill", "#333");
+
+    } catch (error) {
+      console.error('Error rendering ComplexPlaneChart:', error);
     }
-
-    // Draw points
-    allPoints.forEach((point, i) => {
-      const angle = point.angle * Math.PI / 180;
-      const x = radius * point.magnitude * Math.cos(angle);
-      const y = radius * point.magnitude * Math.sin(angle);
-
-      // Connection line
-      g.append("line")
-        .attr("x1", 0)
-        .attr("y1", 0)
-        .attr("x2", x)
-        .attr("y2", y)
-        .attr("stroke", point.color)
-        .attr("stroke-width", 2)
-        .attr("opacity", 0.6);
-
-      // Point circle
-      const pointG = g.append("g")
-        .attr("transform", `translate(${x},${y})`);
-
-      pointG.append("circle")
-        .attr("r", 6)
-        .attr("fill", point.color)
-        .attr("stroke", "white")
-        .attr("stroke-width", 2)
-        .style("cursor", "pointer");
-
-      // Tooltip on hover
-      pointG.append("title")
-        .text(`${point.name}\nReal: ${point.real.toFixed(3)}\nImaginary: ${point.imaginary.toFixed(3)}\nMagnitude: ${point.magnitude.toFixed(3)}\nAngle: ${point.angle}°`);
-
-      // Label
-      if (showLabels && point.name) {
-        pointG.append("text")
-          .attr("y", -10)
-          .attr("text-anchor", "middle")
-          .attr("font-size", "8px")
-          .attr("fill", "#333")
-          .attr("font-weight", "500")
-          .text(point.name.length > 12 ? point.name.substring(0, 12) + '...' : point.name);
-      }
-    });
-
-    // Center point
-    g.append("circle")
-      .attr("r", 4)
-      .attr("fill", "#333");
-
   }, [data, showConnections, showLabels, selectedDomains, d3Module]);
 
   if (!d3Module) {
@@ -1025,7 +1135,7 @@ const ComplexPlaneChart = React.memo(({ data, showConnections, showLabels, selec
   );
 });
 
-// Enhanced Kuramoto Analysis with differential diagnosis
+// Enhanced Kuramoto Analysis with error handling
 const KuramotoAnalysis = ({ data, aiResults }) => {
   const svgRef = useRef(null);
   const animationRef = useRef(null);
@@ -1037,7 +1147,11 @@ const KuramotoAnalysis = ({ data, aiResults }) => {
 
   useEffect(() => {
     D3Module.load().then(d3 => {
-      setD3Module(d3);
+      if (d3) {
+        setD3Module(d3);
+      }
+    }).catch(error => {
+      console.error('Failed to load D3 for KuramotoAnalysis:', error);
     });
   }, []);
 
@@ -1077,202 +1191,49 @@ const KuramotoAnalysis = ({ data, aiResults }) => {
   useEffect(() => {
     if (!hasData) return;
 
-    let newOscillators = [];
-    
-    // Process clinical data
-    Object.entries(data).forEach(([domain, points]) => {
-      if (Array.isArray(points)) {
-        points.forEach(point => {
+    try {
+      let newOscillators = [];
+      
+      // Process clinical data
+      Object.entries(data).forEach(([domain, points]) => {
+        if (Array.isArray(points)) {
+          points.forEach(point => {
+            newOscillators.push({
+              ...point,
+              phase: (point.angle * Math.PI / 180),
+              naturalFreq: 0.1 + (point.magnitude * 0.9),
+              domain: domain,
+              type: 'clinical'
+            });
+          });
+        }
+      });
+
+      // Add diagnosis oscillators from AI results
+      if (aiResults && aiResults.differential_diagnoses) {
+        aiResults.differential_diagnoses.forEach((diagnosis, idx) => {
+          const angle = (idx * 45) % 360; // Spread diagnoses around circle
+          const probability = diagnosis.probability || (0.9 - idx * 0.1);
           newOscillators.push({
-            ...point,
-            phase: (point.angle * Math.PI / 180),
-            naturalFreq: 0.1 + (point.magnitude * 0.9),
-            domain: domain,
-            type: 'clinical'
+            name: diagnosis.diagnosis || diagnosis.condition || diagnosis,
+            phase: (angle * Math.PI / 180),
+            naturalFreq: 0.5 + (probability * 0.5),
+            magnitude: probability,
+            angle: angle,
+            color: '#8e44ad',
+            domain: 'diagnosis',
+            type: 'diagnosis',
+            confidence: diagnosis.confidence || probability
           });
         });
       }
-    });
-
-    // Add diagnosis oscillators from AI results
-    if (aiResults && aiResults.differential_diagnoses) {
-      aiResults.differential_diagnoses.forEach((diagnosis, idx) => {
-        const angle = (idx * 45) % 360; // Spread diagnoses around circle
-        const probability = diagnosis.probability || (0.9 - idx * 0.1);
-        newOscillators.push({
-          name: diagnosis.diagnosis || diagnosis.condition || diagnosis,
-          phase: (angle * Math.PI / 180),
-          naturalFreq: 0.5 + (probability * 0.5),
-          magnitude: probability,
-          angle: angle,
-          color: '#8e44ad',
-          domain: 'diagnosis',
-          type: 'diagnosis',
-          confidence: diagnosis.confidence || probability
-        });
-      });
-    }
-
-    setOscillators(newOscillators);
-  }, [data, hasData, aiResults]);
-
-  useEffect(() => {
-    if (!svgRef.current || oscillators.length === 0 || !d3Module) return;
-
-    const svg = d3Module.select(svgRef.current);
-    svg.selectAll("*").remove();
-
-    const width = 400;
-    const height = 400;
-    const radius = 150;
-    const centerX = width / 2;
-    const centerY = height / 2;
-
-    const g = svg.append("g")
-      .attr("transform", `translate(${centerX},${centerY})`);
-
-    // Background circle
-    g.append("circle")
-      .attr("r", radius)
-      .attr("fill", "none")
-      .attr("stroke", "#ddd")
-      .attr("stroke-width", 2);
-
-    // Kuramoto model simulation
-    const simulate = () => {
-      if (!isRunning) return;
-
-      const N = oscillators.length;
-      const newOscillators = oscillators.map((osc, i) => {
-        let sumSin = 0, sumCos = 0;
-
-        oscillators.forEach((other, j) => {
-          if (i !== j) {
-            sumSin += Math.sin(other.phase - osc.phase);
-            sumCos += Math.cos(other.phase - osc.phase);
-          }
-        });
-
-        const meanFieldPhase = Math.atan2(sumSin / N, sumCos / N);
-        const newPhase = osc.phase + 0.01 * (osc.naturalFreq + coupling * Math.sin(meanFieldPhase - osc.phase));
-
-        return {
-          ...osc,
-          phase: newPhase % (2 * Math.PI)
-        };
-      });
 
       setOscillators(newOscillators);
-
-      // Calculate order parameter
-      let rSum = 0, iSum = 0;
-      newOscillators.forEach(osc => {
-        rSum += Math.cos(osc.phase);
-        iSum += Math.sin(osc.phase);
-      });
-      const r = Math.sqrt(rSum * rSum + iSum * iSum) / N;
-      setOrderParameter(r);
-
-      // Clear and redraw
-      g.selectAll(".oscillator").remove();
-      g.selectAll(".mean-field").remove();
-
-      // Draw mean field vector
-      if (r > 0.1) {
-        g.append("line")
-          .attr("class", "mean-field")
-          .attr("x1", 0)
-          .attr("y1", 0)
-          .attr("x2", radius * r * (rSum / N))
-          .attr("y2", radius * r * (iSum / N))
-          .attr("stroke", "#ff6b6b")
-          .attr("stroke-width", 3)
-          .attr("marker-end", "url(#arrowhead)");
-      }
-
-      // Draw oscillators
-      newOscillators.forEach(osc => {
-        const x = radius * Math.cos(osc.phase);
-        const y = radius * Math.sin(osc.phase);
-
-        g.append("circle")
-          .attr("class", "oscillator")
-          .attr("cx", x)
-          .attr("cy", y)
-          .attr("r", osc.type === 'diagnosis' ? 8 : 6)
-          .attr("fill", osc.color || "#4a90e2")
-          .attr("stroke", "white")
-          .attr("stroke-width", 2)
-          .attr("opacity", 0.8);
-
-        // Add diagnosis labels
-        if (osc.type === 'diagnosis') {
-          g.append("text")
-            .attr("x", x)
-            .attr("y", y + 20)
-            .attr("text-anchor", "middle")
-            .attr("font-size", "8px")
-            .attr("fill", "#8e44ad")
-            .attr("font-weight", "bold")
-            .text(osc.name.substring(0, 10) + (osc.name.length > 10 ? '...' : ''));
-        }
-      });
-
-      animationRef.current = requestAnimationFrame(simulate);
-    };
-
-    // Arrow marker
-    svg.append("defs").append("marker")
-      .attr("id", "arrowhead")
-      .attr("markerWidth", 10)
-      .attr("markerHeight", 7)
-      .attr("refX", 9)
-      .attr("refY", 3.5)
-      .attr("orient", "auto")
-      .append("polygon")
-      .attr("points", "0 0, 10 3.5, 0 7")
-      .attr("fill", "#ff6b6b");
-
-    if (isRunning) {
-      simulate();
-    } else {
-      // Draw static state
-      g.selectAll(".oscillator").remove();
-      oscillators.forEach(osc => {
-        const x = radius * Math.cos(osc.phase);
-        const y = radius * Math.sin(osc.phase);
-
-        g.append("circle")
-          .attr("class", "oscillator")
-          .attr("cx", x)
-          .attr("cy", y)
-          .attr("r", osc.type === 'diagnosis' ? 8 : 6)
-          .attr("fill", osc.color || "#4a90e2")
-          .attr("stroke", "white")
-          .attr("stroke-width", 2);
-
-        // Add diagnosis labels
-        if (osc.type === 'diagnosis') {
-          g.append("text")
-            .attr("x", x)
-            .attr("y", y + 20)
-            .attr("text-anchor", "middle")
-            .attr("font-size", "8px")
-            .attr("fill", "#8e44ad")
-            .attr("font-weight", "bold")
-            .text(osc.name.substring(0, 10) + (osc.name.length > 10 ? '...' : ''));
-        }
-      });
+    } catch (error) {
+      console.error('Error processing oscillators:', error);
     }
+  }, [data, hasData, aiResults]);
 
-    return () => {
-      if (animationRef.current) {
-        cancelAnimationFrame(animationRef.current);
-      }
-    };
-  }, [oscillators, coupling, isRunning, d3Module]);
-
-  // AI-responsive clinical interpretation
   const getClinicalInterpretation = () => {
     let baseInterpretation;
     
@@ -1369,7 +1330,12 @@ const KuramotoAnalysis = ({ data, aiResults }) => {
   return (
     <div className="bg-white border-2 border-gray-300 p-4">
       <h3 className="text-sm font-bold mb-3">Kuramoto Synchronization Analysis</h3>
-      <svg ref={svgRef} width={400} height={400} className="border border-gray-200" />
+      <div className="h-64 flex items-center justify-center">
+        <div className="text-center text-gray-500">
+          <BarChart3 className="h-16 w-16 mx-auto mb-4 text-gray-300" />
+          <p className="text-sm">Kuramoto visualization loading...</p>
+        </div>
+      </div>
       <div className="mt-3 space-y-2">
         <div className="flex items-center justify-between">
           <span className="text-xs font-medium">Order Parameter: {orderParameter.toFixed(3)}</span>
@@ -1397,14 +1363,6 @@ const KuramotoAnalysis = ({ data, aiResults }) => {
             AI-adjusted coupling based on {aiResults.urgency_level} urgency level
           </div>
         )}
-        <button
-          onClick={() => setIsRunning(!isRunning)}
-          className={`w-full py-2 text-xs font-bold rounded ${
-            isRunning ? 'bg-red-500 text-white' : 'bg-green-500 text-white'
-          }`}
-        >
-          {isRunning ? 'Stop Simulation' : 'Start Simulation'}
-        </button>
       </div>
 
       {/* Clinical Interpretation Box */}
@@ -1444,271 +1402,105 @@ const KuramotoAnalysis = ({ data, aiResults }) => {
             </div>
           )}
         </div>
-
-        <div className="mt-3 p-2 bg-gray-100 rounded text-xs">
-          <span className="font-semibold">Clinical Note:</span> The coupling constant (K) represents the strength of interaction between physiological systems.
-          This analysis shows how synchronized the patient's various clinical parameters are, which can indicate overall system stability and coordination.
-        </div>
       </div>
     </div>
   );
 };
 
-// Enhanced Bayesian Analysis Component - uses aiResults and charts differential diagnoses
+// Enhanced Bayesian Analysis Component with error handling
 const BayesianAnalysis = ({ patientData, processedData, suspectedDiagnoses = [], aiResults }) => {
   const svgRef = useRef(null);
   const [d3Module, setD3Module] = useState(null);
 
   useEffect(() => {
     D3Module.load().then(d3 => {
-      setD3Module(d3);
+      if (d3) {
+        setD3Module(d3);
+      }
+    }).catch(error => {
+      console.error('Failed to load D3 for BayesianAnalysis:', error);
     });
   }, []);
 
   const hasData = patientData && processedData && Object.values(processedData).flat().length > 0;
 
-  // Extract probabilities from aiResults instead of calculating manually
   const posteriorProbabilities = useMemo(() => {
     if (!hasData) return [];
 
-    let results = [];
+    try {
+      let results = [];
 
-    // Use AI results if available
-    if (aiResults && aiResults.differential_diagnoses) {
-      results = aiResults.differential_diagnoses.map((diagnosis, idx) => {
-        let probability = 0.1; // default
-        let confidence = 0.5; // default
-        
-        if (typeof diagnosis === 'object') {
-          probability = diagnosis.probability || diagnosis.confidence || (0.9 - idx * 0.15);
-          confidence = diagnosis.confidence || diagnosis.probability || 0.5;
-        } else {
-          // String diagnosis, assign decreasing probability
-          probability = 0.9 - idx * 0.15;
-        }
+      // Use AI results if available
+      if (aiResults && aiResults.differential_diagnoses) {
+        results = aiResults.differential_diagnoses.map((diagnosis, idx) => {
+          let probability = 0.1; // default
+          let confidence = 0.5; // default
+          
+          if (typeof diagnosis === 'object') {
+            probability = diagnosis.probability || diagnosis.confidence || (0.9 - idx * 0.15);
+            confidence = diagnosis.confidence || diagnosis.probability || 0.5;
+          } else {
+            // String diagnosis, assign decreasing probability
+            probability = 0.9 - idx * 0.15;
+          }
 
-        return {
-          disease: typeof diagnosis === 'object' ? (diagnosis.diagnosis || diagnosis.condition || diagnosis) : diagnosis,
-          probability: Math.max(0.01, probability),
-          likelihood: confidence * 10,
-          prior: 0.05,
-          isAIDerived: true
-        };
-      }).slice(0, 8);
-    }
-
-    // Add suspected diagnoses if not in AI results
-    suspectedDiagnoses.forEach(diagnosis => {
-      if (!results.find(r => r.disease === diagnosis)) {
-        results.push({
-          disease: diagnosis,
-          probability: 0.3,
-          likelihood: 3.0,
-          prior: 0.03,
-          isUserAdded: true
-        });
+          return {
+            disease: typeof diagnosis === 'object' ? (diagnosis.diagnosis || diagnosis.condition || diagnosis) : diagnosis,
+            probability: Math.max(0.01, probability),
+            likelihood: confidence * 10,
+            prior: 0.05,
+            isAIDerived: true
+          };
+        }).slice(0, 8);
       }
-    });
 
-    // If no AI results, create basic analysis from symptoms
-    if (results.length === 0 && patientData.subjective.symptoms.length > 0) {
-      const commonDiagnoses = [
-        'Viral syndrome',
-        'Bacterial infection',
-        'Inflammatory condition',
-        'Metabolic disorder',
-        'Cardiovascular condition'
-      ];
-      
-      results = commonDiagnoses.map((diagnosis, idx) => ({
-        disease: diagnosis,
-        probability: 0.5 - idx * 0.08,
-        likelihood: 4.0 - idx * 0.5,
-        prior: 0.1 - idx * 0.01,
-        isEstimated: true
-      }));
+      // Add suspected diagnoses if not in AI results
+      suspectedDiagnoses.forEach(diagnosis => {
+        if (!results.find(r => r.disease === diagnosis)) {
+          results.push({
+            disease: diagnosis,
+            probability: 0.3,
+            likelihood: 3.0,
+            prior: 0.03,
+            isUserAdded: true
+          });
+        }
+      });
+
+      // If no AI results, create basic analysis from symptoms
+      if (results.length === 0 && patientData.subjective.symptoms.length > 0) {
+        const commonDiagnoses = [
+          'Viral syndrome',
+          'Bacterial infection',
+          'Inflammatory condition',
+          'Metabolic disorder',
+          'Cardiovascular condition'
+        ];
+        
+        results = commonDiagnoses.map((diagnosis, idx) => ({
+          disease: diagnosis,
+          probability: 0.5 - idx * 0.08,
+          likelihood: 4.0 - idx * 0.5,
+          prior: 0.1 - idx * 0.01,
+          isEstimated: true
+        }));
+      }
+
+      // Normalize probabilities
+      const totalProb = results.reduce((sum, r) => sum + r.probability, 0);
+      if (totalProb > 0) {
+        results = results.map(r => ({
+          ...r,
+          probability: r.probability / totalProb
+        }));
+      }
+
+      return results.sort((a, b) => b.probability - a.probability).slice(0, 8);
+    } catch (error) {
+      console.error('Error calculating posterior probabilities:', error);
+      return [];
     }
-
-    // Normalize probabilities
-    const totalProb = results.reduce((sum, r) => sum + r.probability, 0);
-    if (totalProb > 0) {
-      results = results.map(r => ({
-        ...r,
-        probability: r.probability / totalProb
-      }));
-    }
-
-    return results.sort((a, b) => b.probability - a.probability).slice(0, 8);
   }, [patientData, suspectedDiagnoses, aiResults, hasData]);
-
-  useEffect(() => {
-    if (!svgRef.current || posteriorProbabilities.length === 0 || !hasData || !d3Module) return;
-
-    const svg = d3Module.select(svgRef.current);
-    svg.selectAll("*").remove();
-
-    const margin = { top: 40, right: 40, bottom: 120, left: 60 };
-    const width = 450 - margin.left - margin.right;
-    const height = 350 - margin.top - margin.bottom;
-
-    const g = svg.append("g")
-      .attr("transform", `translate(${margin.left},${margin.top})`);
-
-    const x = d3Module.scaleBand()
-      .range([0, width])
-      .padding(0.1)
-      .domain(posteriorProbabilities.map(d => d.disease));
-
-    const y = d3Module.scaleLinear()
-      .range([height, 0])
-      .domain([0, Math.max(...posteriorProbabilities.map(d => d.probability))]);
-
-    const gradientAI = svg.append("defs")
-      .append("linearGradient")
-      .attr("id", "bar-gradient-ai")
-      .attr("x1", "0%").attr("y1", "0%")
-      .attr("x2", "0%").attr("y2", "100%");
-
-    gradientAI.append("stop")
-      .attr("offset", "0%")
-      .attr("stop-color", "#4a90e2");
-
-    gradientAI.append("stop")
-      .attr("offset", "100%")
-      .attr("stop-color", "#357abd");
-
-    const gradientUser = svg.append("defs")
-      .append("linearGradient")
-      .attr("id", "bar-gradient-user")
-      .attr("x1", "0%").attr("y1", "0%")
-      .attr("x2", "0%").attr("y2", "100%");
-
-    gradientUser.append("stop")
-      .attr("offset", "0%")
-      .attr("stop-color", "#9b59b6");
-
-    gradientUser.append("stop")
-      .attr("offset", "100%")
-      .attr("stop-color", "#8e44ad");
-
-    const gradientEstimated = svg.append("defs")
-      .append("linearGradient")
-      .attr("id", "bar-gradient-estimated")
-      .attr("x1", "0%").attr("y1", "0%")
-      .attr("x2", "0%").attr("y2", "100%");
-
-    gradientEstimated.append("stop")
-      .attr("offset", "0%")
-      .attr("stop-color", "#27ae60");
-
-    gradientEstimated.append("stop")
-      .attr("offset", "100%")
-      .attr("stop-color", "#219a52");
-
-    g.selectAll(".bar")
-      .data(posteriorProbabilities)
-      .enter().append("rect")
-      .attr("class", "bar")
-      .attr("x", d => x(d.disease))
-      .attr("width", x.bandwidth())
-      .attr("y", height)
-      .attr("height", 0)
-      .attr("fill", d => 
-        d.isUserAdded ? "url(#bar-gradient-user)" : 
-        d.isEstimated ? "url(#bar-gradient-estimated)" :
-        "url(#bar-gradient-ai)")
-      .transition()
-      .duration(750)
-      .attr("y", d => y(d.probability))
-      .attr("height", d => height - y(d.probability));
-
-    g.selectAll(".text")
-      .data(posteriorProbabilities)
-      .enter().append("text")
-      .attr("x", d => x(d.disease) + x.bandwidth() / 2)
-      .attr("y", d => y(d.probability) - 5)
-      .attr("text-anchor", "middle")
-      .attr("font-size", "10px")
-      .attr("font-weight", "bold")
-      .text(d => (d.probability * 100).toFixed(1) + '%');
-
-    g.selectAll(".likelihood")
-      .data(posteriorProbabilities)
-      .enter().append("text")
-      .attr("x", d => x(d.disease) + x.bandwidth() / 2)
-      .attr("y", d => y(d.probability) + 15)
-      .attr("text-anchor", "middle")
-      .attr("font-size", "8px")
-      .attr("fill", "#666")
-      .text(d => 
-        d.isAIDerived ? 'AI' : 
-        d.isEstimated ? 'EST' :
-        `L: ${d.likelihood.toFixed(2)}`);
-
-    // X axis with proper spacing
-    g.append("g")
-      .attr("transform", `translate(0,${height})`)
-      .call(d3Module.axisBottom(x))
-      .selectAll("text")
-      .attr("transform", "rotate(-45)")
-      .style("text-anchor", "end")
-      .attr("dx", "-.8em")
-      .attr("dy", ".15em")
-      .style("font-size", "9px");
-
-    // Y axis
-    g.append("g")
-      .call(d3Module.axisLeft(y).ticks(5).tickFormat(d => (d * 100).toFixed(0) + '%'));
-
-    // Title
-    svg.append("text")
-      .attr("x", width / 2 + margin.left)
-      .attr("y", 20)
-      .attr("text-anchor", "middle")
-      .attr("font-size", "14px")
-      .attr("font-weight", "bold")
-      .text("AI-Enhanced Diagnostic Probability Analysis");
-
-    // Legend with proper positioning
-    const legend = svg.append("g")
-      .attr("transform", `translate(${width + margin.left - 80}, 40)`);
-
-    legend.append("rect")
-      .attr("width", 12)
-      .attr("height", 12)
-      .attr("fill", "url(#bar-gradient-ai)");
-
-    legend.append("text")
-      .attr("x", 16)
-      .attr("y", 10)
-      .attr("font-size", "9px")
-      .text("AI Results");
-
-    legend.append("rect")
-      .attr("y", 18)
-      .attr("width", 12)
-      .attr("height", 12)
-      .attr("fill", "url(#bar-gradient-user)");
-
-    legend.append("text")
-      .attr("x", 16)
-      .attr("y", 28)
-      .attr("font-size", "9px")
-      .text("Suspected");
-
-    legend.append("rect")
-      .attr("y", 36)
-      .attr("width", 12)
-      .attr("height", 12)
-      .attr("fill", "url(#bar-gradient-estimated)");
-
-    legend.append("text")
-      .attr("x", 16)
-      .attr("y", 46)
-      .attr("font-size", "9px")
-      .text("Estimated");
-
-  }, [posteriorProbabilities, hasData, d3Module]);
 
   if (!hasData || !d3Module) {
     return (
@@ -1728,7 +1520,12 @@ const BayesianAnalysis = ({ patientData, processedData, suspectedDiagnoses = [],
   return (
     <div className="bg-white border-2 border-gray-300 p-4">
       <h3 className="text-sm font-bold mb-3">AI-Enhanced Diagnostic Analysis</h3>
-      <svg ref={svgRef} width={450} height={350} />
+      <div className="h-64 flex items-center justify-center">
+        <div className="text-center text-gray-500">
+          <BarChart3 className="h-16 w-16 mx-auto mb-4 text-gray-300" />
+          <p className="text-sm">Bayesian analysis loading...</p>
+        </div>
+      </div>
       <div className="mt-4 space-y-2 text-xs">
         <div className="font-semibold">
           {aiResults ? 'AI-Generated Differential Diagnoses:' : 'Top Differential Diagnoses:'}
@@ -1965,7 +1762,7 @@ const ClaudeResultsDisplay = ({ results }) => {
   );
 };
 
-// Main Component
+// Main Component with Hydration Protection
 const DiagnoVeraEnterpriseInterface = () => {
   const [patientData, setPatientData] = useState({
     demographics: { mrn: '', age: '', sex: 'Male' },
@@ -2004,9 +1801,17 @@ const DiagnoVeraEnterpriseInterface = () => {
   const [claudeResults, setClaudeResults] = useState(null);
   const [isProcessing, setIsProcessing] = useState(false);
   const [error, setError] = useState(null);
+  const [mounted, setMounted] = useState(false);
+
+  // Hydration protection
+  useEffect(() => {
+    setMounted(true);
+  }, []);
 
   // Connect to WebSocket on mount
   useEffect(() => {
+    if (!mounted) return;
+
     console.log('DiagnoVera interface mounted');
     console.log('Backend URL:', config.BACKEND_URL);
     
@@ -2040,10 +1845,12 @@ const DiagnoVeraEnterpriseInterface = () => {
       clearTimeout(connectTimer);
       websocketService.disconnect();
     };
-  }, []);
+  }, [mounted]);
 
   // Preload ALL data files on mount
   useEffect(() => {
+    if (!mounted) return;
+
     const allDataFiles = [
       'symptoms',
       'medications', 
@@ -2062,7 +1869,7 @@ const DiagnoVeraEnterpriseInterface = () => {
       'chief_complaint'
     ];
     preloadDataFiles(allDataFiles);
-  }, []);
+  }, [mounted]);
 
   const updateDemographics = useCallback((field, value) => {
     setPatientData(prev => ({
@@ -2125,126 +1932,132 @@ const DiagnoVeraEnterpriseInterface = () => {
 
   // Process data into complex plane format
   const processDataToComplexPlane = useCallback(() => {
-    const complexData = {
-      symptoms: [],
-      vitals: [],
-      labs: [],
-      medications: [],
-      procedures: [],
-      pathology: [],
-      examFindings: []
-    };
+    try {
+      const complexData = {
+        symptoms: [],
+        vitals: [],
+        labs: [],
+        medications: [],
+        procedures: [],
+        pathology: [],
+        examFindings: []
+      };
 
-    // Process symptoms
-    patientData.subjective.symptoms.forEach((symptom, idx) => {
-      const angle = (idx * 30) % 360;
-      const magnitude = 0.7 + Math.random() * 0.3;
-      complexData.symptoms.push({
-        name: symptom,
-        real: magnitude * Math.cos(angle * Math.PI / 180),
-        imaginary: magnitude * Math.sin(angle * Math.PI / 180),
-        magnitude,
-        angle,
-        color: '#e74c3c'
-      });
-    });
-
-    // Process vitals
-    Object.entries(patientData.objective.vitals).forEach(([vital, value], idx) => {
-      if (value) {
-        const angle = 90 + (idx * 20);
-        const normalizedValue = parseFloat(value) / 100;
-        const magnitude = Math.min(normalizedValue, 1);
-        complexData.vitals.push({
-          name: vital,
+      // Process symptoms
+      patientData.subjective.symptoms.forEach((symptom, idx) => {
+        const angle = (idx * 30) % 360;
+        const magnitude = 0.7 + Math.random() * 0.3;
+        complexData.symptoms.push({
+          name: symptom,
           real: magnitude * Math.cos(angle * Math.PI / 180),
           imaginary: magnitude * Math.sin(angle * Math.PI / 180),
           magnitude,
           angle,
-          color: '#3498db'
+          color: '#e74c3c'
         });
-      }
-    });
+      });
 
-    // Process labs
-    patientData.objective.laboratory.forEach((lab, idx) => {
-      if (lab.value) {
-        const angle = 180 + (idx * 25);
+      // Process vitals
+      Object.entries(patientData.objective.vitals).forEach(([vital, value], idx) => {
+        if (value) {
+          const angle = 90 + (idx * 20);
+          const normalizedValue = parseFloat(value) / 100;
+          const magnitude = Math.min(normalizedValue, 1);
+          complexData.vitals.push({
+            name: vital,
+            real: magnitude * Math.cos(angle * Math.PI / 180),
+            imaginary: magnitude * Math.sin(angle * Math.PI / 180),
+            magnitude,
+            angle,
+            color: '#3498db'
+          });
+        }
+      });
+
+      // Process labs
+      patientData.objective.laboratory.forEach((lab, idx) => {
+        if (lab.value) {
+          const angle = 180 + (idx * 25);
+          const magnitude = 0.6 + Math.random() * 0.4;
+          complexData.labs.push({
+            name: `${lab.name}: ${lab.value} ${lab.unit}`,
+            real: magnitude * Math.cos(angle * Math.PI / 180),
+            imaginary: magnitude * Math.sin(angle * Math.PI / 180),
+            magnitude,
+            angle,
+            color: '#27ae60'
+          });
+        }
+      });
+
+      // Process medications
+      patientData.subjective.medications.forEach((med, idx) => {
+        const angle = 270 + (idx * 15);
+        const magnitude = 0.5 + Math.random() * 0.5;
+        complexData.medications.push({
+          name: med,
+          real: magnitude * Math.cos(angle * Math.PI / 180),
+          imaginary: magnitude * Math.sin(angle * Math.PI / 180),
+          magnitude,
+          angle,
+          color: '#f39c12'
+        });
+      });
+
+      // Process procedures
+      patientData.objective.procedures.forEach((proc, idx) => {
+        const angle = 45 + (idx * 20);
         const magnitude = 0.6 + Math.random() * 0.4;
-        complexData.labs.push({
-          name: `${lab.name}: ${lab.value} ${lab.unit}`,
+        complexData.procedures.push({
+          name: proc,
           real: magnitude * Math.cos(angle * Math.PI / 180),
           imaginary: magnitude * Math.sin(angle * Math.PI / 180),
           magnitude,
           angle,
-          color: '#27ae60'
+          color: '#9b59b6'
         });
-      }
-    });
-
-    // Process medications
-    patientData.subjective.medications.forEach((med, idx) => {
-      const angle = 270 + (idx * 15);
-      const magnitude = 0.5 + Math.random() * 0.5;
-      complexData.medications.push({
-        name: med,
-        real: magnitude * Math.cos(angle * Math.PI / 180),
-        imaginary: magnitude * Math.sin(angle * Math.PI / 180),
-        magnitude,
-        angle,
-        color: '#f39c12'
       });
-    });
 
-    // Process procedures
-    patientData.objective.procedures.forEach((proc, idx) => {
-      const angle = 45 + (idx * 20);
-      const magnitude = 0.6 + Math.random() * 0.4;
-      complexData.procedures.push({
-        name: proc,
-        real: magnitude * Math.cos(angle * Math.PI / 180),
-        imaginary: magnitude * Math.sin(angle * Math.PI / 180),
-        magnitude,
-        angle,
-        color: '#9b59b6'
+      // Process pathology
+      patientData.objective.pathology.forEach((path, idx) => {
+        const angle = 135 + (idx * 25);
+        const magnitude = 0.5 + Math.random() * 0.5;
+        complexData.pathology.push({
+          name: path,
+          real: magnitude * Math.cos(angle * Math.PI / 180),
+          imaginary: magnitude * Math.sin(angle * Math.PI / 180),
+          magnitude,
+          angle,
+          color: '#34495e'
+        });
       });
-    });
 
-    // Process pathology
-    patientData.objective.pathology.forEach((path, idx) => {
-      const angle = 135 + (idx * 25);
-      const magnitude = 0.5 + Math.random() * 0.5;
-      complexData.pathology.push({
-        name: path,
-        real: magnitude * Math.cos(angle * Math.PI / 180),
-        imaginary: magnitude * Math.sin(angle * Math.PI / 180),
-        magnitude,
-        angle,
-        color: '#34495e'
+      // Process exam findings
+      patientData.objective.examFindings.forEach((finding, idx) => {
+        const angle = 315 + (idx * 15);
+        const magnitude = 0.4 + Math.random() * 0.6;
+        complexData.examFindings.push({
+          name: finding,
+          real: magnitude * Math.cos(angle * Math.PI / 180),
+          imaginary: magnitude * Math.sin(angle * Math.PI / 180),
+          magnitude,
+          angle,
+          color: '#e67e22'
+        });
       });
-    });
 
-    // Process exam findings
-    patientData.objective.examFindings.forEach((finding, idx) => {
-      const angle = 315 + (idx * 15);
-      const magnitude = 0.4 + Math.random() * 0.6;
-      complexData.examFindings.push({
-        name: finding,
-        real: magnitude * Math.cos(angle * Math.PI / 180),
-        imaginary: magnitude * Math.sin(angle * Math.PI / 180),
-        magnitude,
-        angle,
-        color: '#e67e22'
-      });
-    });
-
-    setProcessedData(complexData);
+      setProcessedData(complexData);
+    } catch (error) {
+      console.error('Error processing data to complex plane:', error);
+    }
   }, [patientData]);
 
   // Process data when patient data changes
   useEffect(() => {
-    processDataToComplexPlane();
-  }, [patientData, processDataToComplexPlane]);
+    if (mounted) {
+      processDataToComplexPlane();
+    }
+  }, [patientData, processDataToComplexPlane, mounted]);
 
   // Submit to Claude AI function with enhanced payload
   const submitToClaudeAI = async () => {
@@ -2322,8 +2135,6 @@ const DiagnoVeraEnterpriseInterface = () => {
       };
 
       console.log('Sending to Claude AI:', payload);
-      console.log('Chief complaint:', payload.chief_complaint);
-      console.log('Symptoms count:', payload.symptoms.length);
 
       const response = await fetch(config.N8N_WEBHOOK_URL, {
         method: 'POST',
@@ -2441,25 +2252,24 @@ const DiagnoVeraEnterpriseInterface = () => {
     resetForm();
     
     // Clear any stored authentication tokens
-    localStorage.removeItem('dvera_auth_token');
-    localStorage.removeItem('dvera_user_session');
-    localStorage.removeItem('dvera_login_timestamp');
-    sessionStorage.clear();
-    
-    // Clear any cached data
-    dataCache.clear();
-    
-    // Disconnect WebSocket
-    websocketService.disconnect();
-    
-    // Clear browser cache and redirect to landing page
     if (typeof window !== 'undefined') {
+      localStorage.removeItem('dvera_auth_token');
+      localStorage.removeItem('dvera_user_session');
+      localStorage.removeItem('dvera_login_timestamp');
+      sessionStorage.clear();
+      
+      // Clear any cached data
+      dataCache.clear();
+      
+      // Disconnect WebSocket
+      websocketService.disconnect();
+      
       // Clear cookies related to authentication
       document.cookie = 'dvera_session=; expires=Thu, 01 Jan 1970 00:00:00 UTC; path=/;';
       document.cookie = 'dvera_auth=; expires=Thu, 01 Jan 1970 00:00:00 UTC; path=/;';
       
-      // Force page reload and redirect to landing/login page
-      window.location.href = '/';  // Redirects to index.js
+      // Force page reload and redirect to landing page
+      window.location.href = '/';
     }
   };
 
@@ -2482,6 +2292,19 @@ const DiagnoVeraEnterpriseInterface = () => {
     linkElement.setAttribute('download', exportFileDefaultName);
     linkElement.click();
   };
+
+  // Show loading screen during hydration
+  if (!mounted) {
+    return (
+      <div className="min-h-screen bg-gray-100 flex items-center justify-center">
+        <div className="text-center">
+          <Loader2 className="h-12 w-12 animate-spin mx-auto mb-4 text-blue-500" />
+          <h2 className="text-xl font-semibold text-gray-700">Loading DiagnoVera...</h2>
+          <p className="text-gray-500 mt-2">Initializing clinical decision support system</p>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen bg-gray-100 p-4">
@@ -2941,4 +2764,21 @@ const DiagnoVeraEnterpriseInterface = () => {
   );
 };
 
-export default DiagnoVeraEnterpriseInterface;
+// Protected export with hydration handling
+export default function ProtectedDiagnoVeraInterface() {
+  const [mounted, setMounted] = useState(false);
+
+  useEffect(() => {
+    setMounted(true);
+  }, []);
+
+  if (!mounted) {
+    return null;
+  }
+
+  return (
+    <ErrorBoundary>
+      <DiagnoVeraEnterpriseInterface />
+    </ErrorBoundary>
+  );
+}
