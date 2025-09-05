@@ -1,0 +1,171 @@
+C:\DIAGNOVERA
+|   .env
+|   .firebaserc
+|   .gitignore
+|   .vercelignore
+|   ai-literature-scraper.py
+|   api-backend.py
+|   api-complex-plane-endpoints.py
+|   cloud-functions.py
+|   deploy.sh
+|   diagnovera-deployment-guide.md
+|   diagnovera-deployment.txt
+|   diagnovera-sa-key.json
+|   diagnovera-setup-script.sh
+|   disease-library-viewer.tsx
+|   docker-compose.yml
+|   enhanced-frontend-visualization.tsx
+|   env.yaml
+|   firebase.json
+|   firestore.indexes.json
+|   firestore.rules
+|   fix_diagnovera_windows.bat
+|   fix_docker_issues.py
+|   gcloud-backend-main.py
+|   gcloud-deployment-config.txt
+|   gcp-infrastructure.txt
+|   init-reference-library.py
+|   integration-guide.md
+|   medical-diagnostic-system.py
+|   Project name number and ID.txt
+|   quick-start-script.sh
+|   readme-setup.md
+|   run_backend.bat
+|   run_backend.sh
+|   scraper-env.yaml
+|   service-account-key.json
+|   setup-script.sh
+|   setup_diagnovera.py
+|   setup_diagnovera_project.sh
+|   setup_docker_files.py
+|   setup_env.bat
+|   setup_medical_diagnostic_system.sh
+|   set_env.bat
+|   terraform-sa.json
+|   test.py
+|   test_connection.py
+|   test_diagnosis.json
+|   test_diagnovera.py
+|   test_integration.py
+|   test_simple.py
+|   upload-icd10-script.py
+|   upload_icd10_to_firestore.py
+|   vercel-deployment.json
+|   vercel-frontend.tsx
+|
++---.vercel
+|       project.json
+|       README.txt
+|
++---backend
+|   |   .dockerignore
+|   |   .env
+|   |   .env.example
+|   |   .env.production
+|   |   app.yaml
+|   |   cloudbuild.yaml
+|   |   diagnovera_process_a.py
+|   |   docker-compose.yml
+|   |   Dockerfile
+|   |   env.yaml
+|   |   main.py
+|   |   README.md
+|   |   requirements.txt
+|   |   service-account-key.json
+|   |   setup-scheduler.ps1
+|   |
+|   +---cloud_functions
+|   |   +---library_builder
+|   |   |       Dockerfile
+|   |   |       main.py
+|   |   |       requirements.txt
+|   |   |
+|   |   \---patient_processor
+|   |           main.py
+|   |
+|   +---scripts
+|   |       init_library.py
+|   |
+|   +---src
+|   |       main.py
+|   |       process_a.py
+|   |
+|   \---tests
++---deployment
+|   +---k8s
+|   \---terraform
++---frontend
+|   |   .env.local
+|   |   .env.test
+|   |   .gitignore
+|   |   next.config.js
+|   |   package.json
+|   |   postcss.config.js
+|   |   tailwind.config.js
+|   |
+|   +---.vercel
+|   |       project.json
+|   |       README.txt
+|   |
+|   +---components
+|   |       DiagnoVeraEnterpriseInterface.js
+|   |
+|   +---lib
+|   |       firebase.js
+|   |
+|   +---pages
+|   |       index.js
+|   |       test-api.js
+|   |       _app.js
+|   |
+|   +---public
+|   |       allergy-history.json
+|   |       chief-complaints.json
+|   |       exam-findings.json
+|   |       family-history.json
+|   |       favicon.ico
+|   |       imaging-studies.json
+|   |       laboratory-tests.json
+|   |       medications.json
+|   |       past-medical-history.json
+|   |       past-surgical-history.json
+|   |       pathology.json
+|   |       procedures.json
+|   |       robots.txt
+|   |       social-history.json
+|   |       symptoms.json
+|   |
+|   \---styles
+|           globals.css
+|
++---process-a-lite
+|       Dockerfile
+|       process_a_lite.py
+|       requirements.txt
+|
++---resources
+|       ICD10_2026.xlsx
+|
+\---terraform
+    |   .terraform.lock.hcl
+    |   backend.tf
+    |   main.tf
+    |   terraform.tfvars
+    |
+    \---.terraform
+        |   terraform.tfstate
+        |
+        \---providers
+            \---registry.terraform.io
+                \---hashicorp
+                    +---google
+                    |   \---5.45.2
+                    |       \---windows_amd64
+                    |               LICENSE.txt
+                    |               terraform-provider-google_v5.45.2_x5.exe
+                    |
+                    \---google-beta
+                        \---5.45.2
+                            \---windows_amd64
+                                    LICENSE.txt
+                                    terraform-provider-google-beta_v5.45.2_x5.exe

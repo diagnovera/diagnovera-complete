@@ -1,0 +1,28 @@
+services:
+  backend:
+    build: ./diagnovera-backend
+    ports:
+      - "8080:8080"
+    environment:
+      - GCP_PROJECT_ID=genial-core-467800-k8
+      - GOOGLE_APPLICATION_CREDENTIALS=/app/service-account.json
+    volumes:
+      - ./diagnovera-sa-key.json:/app/service-account.json:ro
+      - ./resources:/app/resources:ro
+
+  frontend:
+    build: ./diagnovera-frontend
+    ports:
+      - "5173:5173"
+    environment:
+      - VITE_API_URL=http://localhost:8080
+    depends_on:
+      - backend
+
+  process-a-lite:
+    build: ./process-a-lite
+    environment:
+      - GCP_PROJECT_ID=genial-core-467800-k8
+      - BACKEND_URL=http://backend:8080
+    depends_on:
+      - backend

@@ -1,0 +1,14 @@
+﻿.git
+.gitignore
+__pycache__
+*.pyc
+.env
+.env.*
+venv/
+*.log
+.pytest_cache
+.coverage
+service-account-key.json
+*.json
+setup-scheduler.ps1
+tests/

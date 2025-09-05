@@ -1,0 +1,6 @@
+tree 03e3eabd557fb47a7e3e372c602772765bc60733
+parent c78cab5b26ec188fcaab0db55cc00df7dbee32d0
+author diagnovera <ghajarmehrdad@gmail.com> 1756227463 -0700
+committer diagnovera <ghajarmehrdad@gmail.com> 1756227463 -0700
+
+Fix authorization flow - admin authorizes users without redirect

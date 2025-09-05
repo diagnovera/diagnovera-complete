@@ -1,0 +1,229 @@
+# DIAGNOVERA Google Cloud Deployment Configuration
+
+# app.yaml - Google App Engine configuration for Process A backend
+runtime: python39
+service: process-a-backend
+
+env_variables:
+  PROJECT_ID: "genial-core-467800-k8"
+  PROJECT_NAME: "DIAGNOVERA"
+  PROJECT_NUMBER: "924070815611"
+  PUBMED_API_KEY: "${PUBMED_API_KEY}"
+
+automatic_scaling:
+  min_instances: 1
+  max_instances: 10
+  target_cpu_utilization: 0.65
+
+handlers:
+- url: /api/.*
+  script: auto
+  secure: always
+
+---
+
+# cloudbuild.yaml - Build configuration
+steps:
+# Build Process A backend
+- name: 'gcr.io/cloud-builders/docker'
+  args: ['build', '-t', 'gcr.io/$PROJECT_ID/diagnovera-process-a:$BUILD_ID', './backend']
+
+# Deploy to Cloud Run
+- name: 'gcr.io/cloud-builders/gcloud'
+  args:
+  - 'run'
+  - 'deploy'
+  - 'diagnovera-process-a'
+  - '--image=gcr.io/$PROJECT_ID/diagnovera-process-a:$BUILD_ID'
+  - '--region=us-central1'
+  - '--platform=managed'
+  - '--allow-unauthenticated'
+  - '--memory=2Gi'
+  - '--cpu=2'
+
+# Deploy Process B frontend to Vercel
+- name: 'node:18'
+  entrypoint: 'npm'
+  args: ['install', '-g', 'vercel']
+  dir: 'frontend'
+
+- name: 'node:18'
+  entrypoint: 'vercel'
+  args: ['--prod', '--token=$_VERCEL_TOKEN']
+  dir: 'frontend'
+
+---
+
+# firestore.rules - Security rules
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // ICD-10 base data (read-only)
+    match /icd10_2026/{document=**} {
+      allow read: if request.auth != null;
+      allow write: if false;
+    }
+    
+    // Expanded reference library (read-only for users, write for Process A)
+    match /icd10_expanded_reference_library/{document=**} {
+      allow read: if request.auth != null;
+      allow write: if request.auth.token.service_account == true;
+    }
+    
+    // Patient encounters (authenticated users only)
+    match /patient_encounters/{userId}/{document=**} {
+      allow read, write: if request.auth != null && request.auth.uid == userId;
+    }
+    
+    // Analysis results
+    match /analysis_results/{userId}/{document=**} {
+      allow read, write: if request.auth != null && request.auth.uid == userId;
+    }
+  }
+}
+
+---
+
+# requirements.txt - Python dependencies for Process A
+firebase-admin==6.1.0
+google-cloud-firestore==2.11.1
+biopython==1.81
+numpy==1.24.3
+pandas==2.0.3
+aiohttp==3.8.5
+asyncio==3.4.3
+python-dotenv==1.0.0
+
+---
+
+# vercel.json - Vercel configuration for Process B frontend
+{
+  "framework": "nextjs",
+  "buildCommand": "npm run build",
+  "outputDirectory": ".next",
+  "env": {
+    "NEXT_PUBLIC_FIREBASE_API_KEY": "@firebase_api_key",
+    "NEXT_PUBLIC_FIREBASE_PROJECT_ID": "genial-core-467800-k8",
+    "NEXT_PUBLIC_API_ENDPOINT": "@process_a_api_endpoint"
+  },
+  "regions": ["iad1"],
+  "functions": {
+    "api/analyze.js": {
+      "maxDuration": 30
+    }
+  }
+}
+
+---
+
+# docker-compose.yml - Local development
+version: '3.8'
+
+services:
+  firestore-emulator:
+    image: google/cloud-sdk
+    command: gcloud emulators firestore start --host-port=0.0.0.0:8080
+    ports:
+      - "8080:8080"
+    environment:
+      - FIRESTORE_PROJECT_ID=genial-core-467800-k8
+
+  process-a:
+    build: ./backend
+    environment:
+      - FIRESTORE_EMULATOR_HOST=firestore-emulator:8080
+      - GOOGLE_APPLICATION_CREDENTIALS=/app/service-account.json
+    volumes:
+      - ./service-account.json:/app/service-account.json
+    depends_on:
+      - firestore-emulator
+
+  frontend:
+    build: ./frontend
+    ports:
+      - "3000:3000"
+    environment:
+      - NEXT_PUBLIC_API_ENDPOINT=http://process-a:8000
+    depends_on:
+      - process-a
+
+---
+
+# terraform/main.tf - Infrastructure as Code
+terraform {
+  required_providers {
+    google = {
+      source  = "hashicorp/google"
+      version = "~> 4.0"
+    }
+  }
+}
+
+provider "google" {
+  project = "genial-core-467800-k8"
+  region  = "us-central1"
+}
+
+# Cloud Scheduler for Process A automation
+resource "google_cloud_scheduler_job" "process_a_daily" {
+  name             = "diagnovera-process-a-daily"
+  description      = "Daily run of Process A to update reference library"
+  schedule         = "0 2 * * *"  # 2 AM daily
+  time_zone        = "America/Los_Angeles"
+  attempt_deadline = "1800s"
+
+  http_target {
+    uri         = "https://diagnovera-process-a-xxxxx.a.run.app/api/process-a/run"
+    http_method = "POST"
+    
+    oidc_token {
+      service_account_email = google_service_account.process_a.email
+    }
+  }
+}
+
+# Service account for Process A
+resource "google_service_account" "process_a" {
+  account_id   = "diagnovera-process-a"
+  display_name = "DIAGNOVERA Process A Service Account"
+}
+
+# IAM roles
+resource "google_project_iam_member" "process_a_firestore" {
+  project = "genial-core-467800-k8"
+  role    = "roles/datastore.user"
+  member  = "serviceAccount:${google_service_account.process_a.email}"
+}
+
+# Cloud Run service
+resource "google_cloud_run_service" "process_a" {
+  name     = "diagnovera-process-a"
+  location = "us-central1"
+
+  template {
+    spec {
+      containers {
+        image = "gcr.io/genial-core-467800-k8/diagnovera-process-a:latest"
+        
+        resources {
+          limits = {
+            cpu    = "2"
+            memory = "2Gi"
+          }
+        }
+        
+        env {
+          name  = "PROJECT_ID"
+          value = "genial-core-467800-k8"
+        }
+      }
+      
+      service_account_name = google_service_account.process_a.email
+    }
+  }
+
+  traffic {
+    percent         = 100
+    latest_revision = true
+  }
+}

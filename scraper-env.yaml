@@ -1,0 +1,7 @@
+﻿PROJECT: "icd10-diagnosis-system-2024"
+ICD10_XLSX: "gs://icd10-diagnosis-system-2024-reference/icd10/2026/ICD10_2026.xlsx"
+OUT_GCS: "gs://icd10-diagnosis-system-2024-reference/literature/raw"
+BQ_DATASET: "reference"
+BQ_TABLE: "literature_index"
+MAX_ARTICLES: "15"
+ENTREZ_EMAIL: "you@example.com"

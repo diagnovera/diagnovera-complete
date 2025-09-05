@@ -1,0 +1,33 @@
+{
+  "indexes": [
+    {
+      "collectionGroup": "icd10_expanded_reference_library",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "icd10_code",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "metadata.version",
+          "order": "DESCENDING"
+        }
+      ]
+    },
+    {
+      "collectionGroup": "patient_encounters",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "patient_id",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "timestamp",
+          "order": "DESCENDING"
+        }
+      ]
+    }
+  ],
+  "fieldOverrides": []
+}
