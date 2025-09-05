@@ -127,63 +127,103 @@ const websocketService = new WebSocketService();
 // Data cache
 const dataCache = new Map();
 
-// Fallback data
+// Fallback data with comprehensive medical data
 const getFallbackData = (dataFile) => {
   const fallbacks = {
-    symptoms: ['Chest pain', 'Shortness of breath', 'Fever', 'Cough', 'Fatigue', 'Headache', 'Nausea', 'Dizziness'],
-    medications: ['Aspirin', 'Metoprolol', 'Lisinopril', 'Atorvastatin', 'Metformin', 'Levothyroxine'],
-    allergies: ['Penicillin', 'Sulfa drugs', 'Latex', 'Peanuts', 'Shellfish'],
-    past_medical_history: ['Hypertension', 'Diabetes Type 2', 'Hyperlipidemia', 'GERD', 'Asthma'],
-    past_surgical_history: ['Appendectomy', 'Cholecystectomy', 'Knee arthroscopy', 'Hernia repair'],
-    laboratory_tests: ['Complete Blood Count', 'Basic Metabolic Panel', 'Troponin', 'BNP', 'D-dimer', 'CRP'],
-    imaging_studies: ['Chest X-ray', 'CT Chest', 'Echocardiogram', 'EKG', 'MRI Brain'],
-    diagnoses: ['Acute MI', 'Pneumonia', 'Heart Failure', 'COPD Exacerbation', 'Pulmonary Embolism'],
-    chief_complaint: ['Chest pain', 'Shortness of breath', 'Abdominal pain', 'Headache', 'Fever', 'Nausea', 'Dizziness', 'Fatigue'],
+    symptoms: [
+      'Chest pain', 'Shortness of breath', 'Fever', 'Cough', 'Fatigue', 'Headache', 
+      'Nausea', 'Dizziness', 'Abdominal pain', 'Joint pain', 'Muscle weakness',
+      'Palpitations', 'Sweating', 'Chills', 'Loss of appetite', 'Weight loss'
+    ],
+    medications: [
+      'Aspirin', 'Metoprolol', 'Lisinopril', 'Atorvastatin', 'Metformin', 
+      'Levothyroxine', 'Amlodipine', 'Omeprazole', 'Albuterol', 'Furosemide',
+      'Warfarin', 'Insulin', 'Prednisone', 'Amoxicillin', 'Hydrochlorothiazide',
+      'Gabapentin', 'Sertraline', 'Ibuprofen', 'Acetaminophen', 'Losartan'
+    ],
+    allergies: [
+      'Penicillin', 'Sulfa drugs', 'Latex', 'Peanuts', 'Shellfish', 'Eggs',
+      'Milk', 'Soy', 'Tree nuts', 'Wheat', 'Iodine', 'Aspirin', 'NSAIDs',
+      'Codeine', 'Morphine', 'Contrast dye', 'Bee stings', 'Dust mites'
+    ],
+    past_medical_history: [
+      'Hypertension', 'Diabetes Type 2', 'Hyperlipidemia', 'GERD', 'Asthma',
+      'COPD', 'Coronary artery disease', 'Heart failure', 'Atrial fibrillation',
+      'Stroke', 'Depression', 'Anxiety', 'Osteoarthritis', 'Osteoporosis',
+      'Chronic kidney disease', 'Hypothyroidism', 'Cancer history'
+    ],
+    past_surgical_history: [
+      'Appendectomy', 'Cholecystectomy', 'Knee arthroscopy', 'Hernia repair',
+      'Coronary bypass', 'Hip replacement', 'Cataract surgery', 'Tonsillectomy',
+      'Gallbladder removal', 'Colonoscopy', 'Endoscopy', 'Cardiac catheterization',
+      'Pacemaker insertion', 'Stent placement', 'Thyroidectomy'
+    ],
+    laboratory_tests: [
+      'Complete Blood Count', 'Basic Metabolic Panel', 'Comprehensive Metabolic Panel',
+      'Lipid Panel', 'Liver Function Tests', 'Thyroid Function Tests', 'HbA1c',
+      'Troponin', 'BNP', 'D-dimer', 'CRP', 'ESR', 'PT/INR', 'PTT', 'Urinalysis',
+      'Urine Culture', 'Blood Culture', 'Cardiac Enzymes', 'Arterial Blood Gas'
+    ],
+    imaging_studies: [
+      'Chest X-ray', 'CT Chest', 'CT Abdomen/Pelvis', 'CT Head', 'MRI Brain',
+      'MRI Spine', 'Echocardiogram', 'EKG', 'Stress Test', 'Ultrasound Abdomen',
+      'Ultrasound Pelvis', 'Mammogram', 'DEXA Scan', 'Nuclear Medicine Scan',
+      'PET Scan', 'Angiogram', 'Doppler Studies', 'Bone Scan'
+    ],
+    diagnoses: [
+      'Acute MI', 'Pneumonia', 'Heart Failure', 'COPD Exacerbation', 
+      'Pulmonary Embolism', 'Stroke', 'Sepsis', 'Urinary Tract Infection',
+      'Diabetic Ketoacidosis', 'Hypertensive Crisis', 'Acute Kidney Injury',
+      'Gastroenteritis', 'Appendicitis', 'Cholangitis', 'Pancreatitis'
+    ],
+    chief_complaint: [
+      'Chest pain', 'Shortness of breath', 'Abdominal pain', 'Headache', 
+      'Fever', 'Nausea', 'Dizziness', 'Fatigue', 'Joint pain', 'Back pain',
+      'Palpitations', 'Syncope', 'Weakness', 'Confusion', 'Falls'
+    ],
     procedures: [
-      'Cardiac catheterization',
-      'Coronary angioplasty',
-      'Pacemaker insertion',
-      'Endotracheal intubation',
-      'Central line placement',
-      'Lumbar puncture',
-      'Thoracentesis',
-      'Paracentesis',
-      'Bronchoscopy',
-      'Upper endoscopy',
-      'Colonoscopy',
-      'Arterial line placement',
-      'Chest tube insertion',
-      'Dialysis catheter placement',
-      'Swan-Ganz catheter insertion'
+      'Cardiac catheterization', 'Coronary angioplasty', 'Pacemaker insertion',
+      'Endotracheal intubation', 'Central line placement', 'Lumbar puncture',
+      'Thoracentesis', 'Paracentesis', 'Bronchoscopy', 'Upper endoscopy',
+      'Colonoscopy', 'Arterial line placement', 'Chest tube insertion',
+      'Dialysis catheter placement', 'Swan-Ganz catheter insertion',
+      'Foley catheter insertion', 'Nasogastric tube placement', 'Tracheostomy'
     ],
     pathology: [
-      'Acute inflammation',
-      'Chronic inflammation',
-      'Necrosis',
-      'Fibrosis',
-      'Hyperplasia',
-      'Dysplasia',
-      'Metaplasia',
-      'Anaplasia',
-      'Atherosclerosis',
-      'Thrombosis',
-      'Embolism',
-      'Ischemia',
-      'Infarction',
-      'Edema',
-      'Hemorrhage',
-      'Congestion',
-      'Hypertrophy',
-      'Atrophy',
-      'Calcification',
-      'Amyloidosis'
+      'Acute inflammation', 'Chronic inflammation', 'Necrosis', 'Fibrosis',
+      'Hyperplasia', 'Dysplasia', 'Metaplasia', 'Anaplasia', 'Atherosclerosis',
+      'Thrombosis', 'Embolism', 'Ischemia', 'Infarction', 'Edema',
+      'Hemorrhage', 'Congestion', 'Hypertrophy', 'Atrophy', 'Calcification',
+      'Amyloidosis', 'Malignancy', 'Benign tumor', 'Infection', 'Autoimmune'
+    ],
+    exam_findings: [
+      'Normal', 'Abnormal heart sounds', 'Murmur', 'Rales', 'Wheezes',
+      'Decreased breath sounds', 'Lymphadenopathy', 'Hepatomegaly', 'Splenomegaly',
+      'Abdominal tenderness', 'Rebound tenderness', 'Guarding', 'Edema',
+      'Cyanosis', 'Jaundice', 'Rash', 'Altered mental status'
+    ],
+    family_history: [
+      'Heart disease', 'Diabetes', 'Cancer', 'Stroke', 'Hypertension',
+      'High cholesterol', 'Mental illness', 'Kidney disease', 'Liver disease',
+      'Autoimmune disease', 'Alzheimer disease', 'Parkinson disease',
+      'Genetic disorders', 'Blood disorders', 'Thyroid disease'
+    ],
+    social_history: [
+      'Never smoker', 'Former smoker', 'Current smoker', 'Never alcohol',
+      'Social drinker', 'Heavy alcohol use', 'Illicit drug use', 'Married',
+      'Single', 'Divorced', 'Widowed', 'Employed', 'Unemployed', 'Retired',
+      'Student', 'Lives alone', 'Lives with family', 'Exercise regularly'
+    ],
+    vital_signs: [
+      'Temperature', 'Heart Rate', 'Blood Pressure', 'Respiratory Rate',
+      'Oxygen Saturation', 'Weight', 'Height', 'BMI', 'Pain Score'
     ]
   };
 
   return fallbacks[dataFile] || [];
 };
 
-// Data loader hook
+// Data loader hook with enhanced error handling
 const useDataLoader = (dataFile) => {
   const [data, setData] = useState([]);
   const [loading, setLoading] = useState(false);
@@ -202,22 +242,30 @@ const useDataLoader = (dataFile) => {
       setError(null);
 
       try {
-        let response = await fetch(`/data/${dataFile}.json`);
-        
-        if (!response.ok) {
-          response = await fetch(`/data/${dataFile}`);
-        }
-        
-        if (!response.ok) {
-          response = await fetch(`${window.location.origin}/data/${dataFile}.json`);
+        // Try multiple paths for data files
+        let response;
+        const possiblePaths = [
+          `/data/${dataFile}.json`,
+          `/data/${dataFile}`,
+          `${window.location.origin}/data/${dataFile}.json`,
+          `./data/${dataFile}.json`
+        ];
+
+        for (const path of possiblePaths) {
+          try {
+            response = await fetch(path);
+            if (response.ok) break;
+          } catch (e) {
+            console.warn(`Failed to fetch from ${path}:`, e);
+          }
         }
 
-        if (!response.ok) {
-          throw new Error(`Failed to load ${dataFile}`);
+        if (!response || !response.ok) {
+          throw new Error(`Failed to load ${dataFile} from all attempted paths`);
         }
 
         const result = await response.json();
-        const items = result.items || result || [];
+        const items = Array.isArray(result) ? result : (result.items || result || []);
 
         dataCache.set(dataFile, items);
         setData(items);
@@ -226,6 +274,7 @@ const useDataLoader = (dataFile) => {
         setError(err.message);
         
         const fallbackData = getFallbackData(dataFile);
+        console.log(`Using fallback data for ${dataFile}:`, fallbackData.slice(0, 3));
         setData(fallbackData);
         dataCache.set(dataFile, fallbackData);
       } finally {
@@ -246,19 +295,26 @@ export const preloadDataFiles = (files) => {
   files.forEach(file => {
     if (!dataCache.has(file)) {
       fetch(`/data/${file}.json`)
-        .then(res => res.json())
+        .then(res => {
+          if (res.ok) {
+            return res.json();
+          }
+          throw new Error(`HTTP ${res.status}`);
+        })
         .then(result => {
-          dataCache.set(file, result.items || result || []);
+          const items = Array.isArray(result) ? result : (result.items || result || []);
+          dataCache.set(file, items);
         })
         .catch(err => {
-          console.warn(`Using fallback data for ${file}`);
-          dataCache.set(file, getFallbackData(file));
+          console.warn(`Preload failed for ${file}, using fallback:`, err.message);
+          const fallbackData = getFallbackData(file);
+          dataCache.set(file, fallbackData);
         });
     }
   });
 };
 
-// EpicAutocompleteField component
+// Enhanced EpicAutocompleteField component
 const EpicAutocompleteField = ({
   label,
   dataFile,
@@ -337,6 +393,11 @@ const EpicAutocompleteField = ({
         </label>
         {loading && (
           <Loader2 className="ml-2 h-3 w-3 animate-spin text-gray-400" />
+        )}
+        {error && (
+          <span className="ml-2 text-xs text-orange-500" title={`Error loading ${dataFile}: ${error}`}>
+            (fallback)
+          </span>
         )}
       </div>
 
@@ -1914,7 +1975,9 @@ const DiagnoVeraEnterpriseInterface = () => {
       medications: [],
       allergyHistory: [],
       pastMedicalHistory: [],
-      pastSurgicalHistory: []
+      pastSurgicalHistory: [],
+      familyHistory: [],
+      socialHistory: []
     },
     objective: {
       vitals: {
@@ -1927,7 +1990,8 @@ const DiagnoVeraEnterpriseInterface = () => {
       laboratory: [],
       imaging: [],
       procedures: [],
-      pathology: []
+      pathology: [],
+      examFindings: []
     }
   });
 
@@ -1978,22 +2042,26 @@ const DiagnoVeraEnterpriseInterface = () => {
     };
   }, []);
 
-  // Preload data files on mount - including new files
+  // Preload ALL data files on mount
   useEffect(() => {
-    const criticalFiles = [
+    const allDataFiles = [
       'symptoms',
-      'medications',
+      'medications', 
       'allergies',
       'past_medical_history',
       'past_surgical_history',
+      'family_history',
+      'social_history',
       'vital_signs',
       'laboratory_tests',
       'imaging_studies',
       'diagnoses',
       'procedures',
-      'pathology'
+      'pathology',
+      'exam_findings',
+      'chief_complaint'
     ];
-    preloadDataFiles(criticalFiles);
+    preloadDataFiles(allDataFiles);
   }, []);
 
   const updateDemographics = useCallback((field, value) => {
@@ -2048,6 +2116,13 @@ const DiagnoVeraEnterpriseInterface = () => {
     }));
   }, []);
 
+  const updateExamFindings = useCallback((value) => {
+    setPatientData(prev => ({
+      ...prev,
+      objective: { ...prev.objective, examFindings: value }
+    }));
+  }, []);
+
   // Process data into complex plane format
   const processDataToComplexPlane = useCallback(() => {
     const complexData = {
@@ -2056,7 +2131,8 @@ const DiagnoVeraEnterpriseInterface = () => {
       labs: [],
       medications: [],
       procedures: [],
-      pathology: []
+      pathology: [],
+      examFindings: []
     };
 
     // Process symptoms
@@ -2148,6 +2224,20 @@ const DiagnoVeraEnterpriseInterface = () => {
       });
     });
 
+    // Process exam findings
+    patientData.objective.examFindings.forEach((finding, idx) => {
+      const angle = 315 + (idx * 15);
+      const magnitude = 0.4 + Math.random() * 0.6;
+      complexData.examFindings.push({
+        name: finding,
+        real: magnitude * Math.cos(angle * Math.PI / 180),
+        imaginary: magnitude * Math.sin(angle * Math.PI / 180),
+        magnitude,
+        angle,
+        color: '#e67e22'
+      });
+    });
+
     setProcessedData(complexData);
   }, [patientData]);
 
@@ -2194,7 +2284,9 @@ const DiagnoVeraEnterpriseInterface = () => {
         clinical_context: `Patient presents with chief complaint: ${patientData.subjective.chiefComplaint || 'Not specified'}. ` +
                          `Symptoms include: ${(patientData.subjective.symptoms || []).join(', ') || 'None reported'}. ` +
                          `Current medications: ${(patientData.subjective.medications || []).join(', ') || 'None'}. ` +
-                         `Medical history: ${(patientData.subjective.pastMedicalHistory || []).join(', ') || 'None significant'}.`,
+                         `Medical history: ${(patientData.subjective.pastMedicalHistory || []).join(', ') || 'None significant'}. ` +
+                         `Family history: ${(patientData.subjective.familyHistory || []).join(', ') || 'None significant'}. ` +
+                         `Social history: ${(patientData.subjective.socialHistory || []).join(', ') || 'Not documented'}.`,
 
         // Vitals
         vitals: patientData.objective.vitals || {},
@@ -2204,12 +2296,15 @@ const DiagnoVeraEnterpriseInterface = () => {
         allergies: patientData.subjective.allergyHistory || [],
         medical_history: patientData.subjective.pastMedicalHistory || [],
         surgical_history: patientData.subjective.pastSurgicalHistory || [],
+        family_history: patientData.subjective.familyHistory || [],
+        social_history: patientData.subjective.socialHistory || [],
 
         // Diagnostic data
         laboratory: patientData.objective.laboratory || [],
         imaging: patientData.objective.imaging || [],
         procedures: patientData.objective.procedures || [],
         pathology: patientData.objective.pathology || [],
+        exam_findings: patientData.objective.examFindings || [],
 
         // Complex analysis for advanced AI processing
         complex_analysis: processedData || {},
@@ -2315,7 +2410,9 @@ const DiagnoVeraEnterpriseInterface = () => {
         medications: [],
         allergyHistory: [],
         pastMedicalHistory: [],
-        pastSurgicalHistory: []
+        pastSurgicalHistory: [],
+        familyHistory: [],
+        socialHistory: []
       },
       objective: {
         vitals: {
@@ -2328,7 +2425,8 @@ const DiagnoVeraEnterpriseInterface = () => {
         laboratory: [],
         imaging: [],
         procedures: [],
-        pathology: []
+        pathology: [],
+        examFindings: []
       }
     });
     setProcessedData({});
@@ -2540,6 +2638,7 @@ const DiagnoVeraEnterpriseInterface = () => {
             {/* Subjective Data */}
             <div className="bg-white shadow rounded-lg p-4">
               <h2 className="text-lg font-bold mb-3">Subjective Data</h2>
+              
               <EpicAutocompleteField
                 label="Chief Complaint"
                 dataFile="chief_complaint"
@@ -2599,6 +2698,26 @@ const DiagnoVeraEnterpriseInterface = () => {
                 multiple={true}
                 color="#34495e"
               />
+
+              <EpicAutocompleteField
+                label="Family History"
+                dataFile="family_history"
+                value={patientData.subjective.familyHistory}
+                onChange={(value) => updateSubjective('familyHistory', value)}
+                placeholder="Search family history..."
+                multiple={true}
+                color="#16a085"
+              />
+
+              <EpicAutocompleteField
+                label="Social History"
+                dataFile="social_history"
+                value={patientData.subjective.socialHistory}
+                onChange={(value) => updateSubjective('socialHistory', value)}
+                placeholder="Search social history..."
+                multiple={true}
+                color="#8e44ad"
+              />
             </div>
 
             {/* Objective Data */}
@@ -2646,6 +2765,16 @@ const DiagnoVeraEnterpriseInterface = () => {
                   />
                 </div>
               </div>
+
+              <EpicAutocompleteField
+                label="Exam Findings"
+                dataFile="exam_findings"
+                value={patientData.objective.examFindings}
+                onChange={updateExamFindings}
+                placeholder="Search exam findings..."
+                multiple={true}
+                color="#e67e22"
+              />
 
               <EpicLabField
                 label="Laboratory Tests"
@@ -2775,6 +2904,7 @@ const DiagnoVeraEnterpriseInterface = () => {
                     <option value="medications">Medications</option>
                     <option value="procedures">Procedures</option>
                     <option value="pathology">Pathology</option>
+                    <option value="examFindings">Exam Findings</option>
                   </select>
                 </div>
               </div>
