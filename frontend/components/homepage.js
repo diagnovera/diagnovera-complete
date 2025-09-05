@@ -12,81 +12,94 @@ export default function HomePage({ onAuthSuccess }) {
   const [userMessage, setUserMessage] = useState('');
   const pollIntervalRef = useRef(null);
 
-// Update the useEffect in your homepage that checks for existing sessions:
+  // Hydration protection
+  const [mounted, setMounted] = useState(false);
+  const [googleLoaded, setGoogleLoaded] = useState(false);
 
-useEffect(() => {
-  // Check for existing session on mount
-  const sessionData = localStorage.getItem('diagnovera_session');
-  if (sessionData) {
-    try {
-      const session = JSON.parse(sessionData);
-      if (session.authorized && session.email) {
-        console.log('Found existing session for:', session.email);
-        
-        // CRITICAL: Create JWT cookie that middleware expects
-        const sessionToken = btoa(JSON.stringify({
-          email: session.email,
-          name: session.name,
-          image: session.image,
-          authorized: true,
-          authorizedAt: session.timestamp || Date.now()
-        }));
-        
-        // Set the cookie that middleware checks for
-        document.cookie = `authToken=${sessionToken}; path=/; max-age=86400; samesite=strict`;
-        
-        console.log('Set auth cookie, redirecting...');
-        
-        // Small delay to ensure cookie is set
-        setTimeout(() => {
-          if (onAuthSuccess) {
-            onAuthSuccess(session);
-          } else {
-            window.location.href = '/diagnoveraenterpriseinterface';
-          }
-        }, 100);
-        return;
+  // Tab states - use React state instead of DOM manipulation
+  const [activeTab, setActiveTab] = useState('tab1');
+  const [activeFounderTab, setActiveFounderTab] = useState('f1');
+  const [openAccordion, setOpenAccordion] = useState(null);
+
+  useEffect(() => {
+    setMounted(true);
+  }, []);
+
+  useEffect(() => {
+    if (!mounted) return;
+
+    // Check for existing session on mount
+    const sessionData = localStorage.getItem('diagnovera_session');
+    if (sessionData) {
+      try {
+        const session = JSON.parse(sessionData);
+        if (session.authorized && session.email) {
+          console.log('Found existing session for:', session.email);
+          
+          // CRITICAL: Create JWT cookie that middleware expects
+          const sessionToken = btoa(JSON.stringify({
+            email: session.email,
+            name: session.name,
+            image: session.image,
+            authorized: true,
+            authorizedAt: session.timestamp || Date.now()
+          }));
+          
+          // Set the cookie that middleware checks for
+          document.cookie = `authToken=${sessionToken}; path=/; max-age=86400; samesite=strict`;
+          
+          console.log('Set auth cookie, redirecting...');
+          
+          // Small delay to ensure cookie is set
+          setTimeout(() => {
+            if (onAuthSuccess) {
+              onAuthSuccess(session);
+            } else {
+              window.location.href = '/diagnoveraenterpriseinterface';
+            }
+          }, 100);
+          return;
+        }
+      } catch (error) {
+        console.error('Error parsing session data:', error);
+        localStorage.removeItem('diagnovera_session');
       }
-    } catch (error) {
-      console.error('Error parsing session data:', error);
-      localStorage.removeItem('diagnovera_session');
     }
-  }
 
-  // Initialize Google Sign-In when script loads
-  if (window.google) {
-    initializeGoogleSignIn();
-  }
-
-  // Cleanup function to clear polling on unmount
-  return () => {
-    if (pollIntervalRef.current) {
-      clearInterval(pollIntervalRef.current);
-    }
-  };
-}, [onAuthSuccess]);
+    // Cleanup function to clear polling on unmount
+    return () => {
+      if (pollIntervalRef.current) {
+        clearInterval(pollIntervalRef.current);
+      }
+    };
+  }, [onAuthSuccess, mounted]);
 
   const initializeGoogleSignIn = () => {
-    if (!window.google || !document.getElementById("googleSignInButton")) {
+    if (!window.google || !document.getElementById("googleSignInButton") || !mounted) {
       return;
     }
 
-    window.google.accounts.id.initialize({
-      client_id: process.env.NEXT_PUBLIC_GOOGLE_CLIENT_ID,
-      callback: handleGoogleResponse
-    });
+    try {
+      window.google.accounts.id.initialize({
+        client_id: process.env.NEXT_PUBLIC_GOOGLE_CLIENT_ID,
+        callback: handleGoogleResponse
+      });
 
-    window.google.accounts.id.renderButton(
-      document.getElementById("googleSignInButton"),
-      {
-        theme: "outline",
-        size: "large",
-        width: "300",  // Changed from "100%" to a pixel value
-        text: "signin_with",
-        shape: "rectangular",
-        logo_alignment: "center"
-      }
-    );
+      window.google.accounts.id.renderButton(
+        document.getElementById("googleSignInButton"),
+        {
+          theme: "outline",
+          size: "large",
+          width: "300",
+          text: "signin_with",
+          shape: "rectangular",
+          logo_alignment: "center"
+        }
+      );
+      setGoogleLoaded(true);
+    } catch (error) {
+      console.error('Error initializing Google Sign-In:', error);
+    }
   };
 
   const pollAuthorization = async (email) => {
@@ -193,75 +206,75 @@ useEffect(() => {
     }, 3000); // Poll every 3 seconds
   };
 
-const handleGoogleResponse = async (response) => {
-  try {
-    setError('');
-    setUserMessage('Processing sign-in...');
-    
-    // Decode the Google JWT to get basic user info for display
-    const payload = JSON.parse(atob(response.credential.split('.')[1]));
-    const userEmail = payload.email;
-    const userName = payload.name;
-
-    console.log('Google sign-in successful for:', userEmail);
-
-    // Only allow Gmail accounts
-    if (!userEmail.endsWith('@gmail.com')) {
-      setError('Only Gmail accounts are allowed. Please use a Gmail account.');
-      setUserMessage('');
-      return;
-    }
-
-    // Store user info temporarily
-    setAuthEmail(userEmail);
-    setUserMessage(`Processing sign-in for ${userName}...`);
-
-    // Send to our direct OAuth API instead of NextAuth
-    const result = await fetch('/api/auth/google-oauth', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        credential: response.credential
-      })
-    });
-
-    console.log('API Response status:', result.status);
-    
-    // Get response as text first to handle both JSON and HTML responses
-    const responseText = await result.text();
-    console.log('API Response text:', responseText);
-
-    let data;
+  const handleGoogleResponse = async (response) => {
     try {
-      data = JSON.parse(responseText);
-    } catch (parseError) {
-      console.error('Failed to parse response as JSON:', parseError);
-      console.log('Raw response:', responseText);
-      throw new Error('Server returned invalid response: ' + responseText.substring(0, 100));
+      setError('');
+      setUserMessage('Processing sign-in...');
+      
+      // Decode the Google JWT to get basic user info for display
+      const payload = JSON.parse(atob(response.credential.split('.')[1]));
+      const userEmail = payload.email;
+      const userName = payload.name;
+
+      console.log('Google sign-in successful for:', userEmail);
+
+      // Only allow Gmail accounts
+      if (!userEmail.endsWith('@gmail.com')) {
+        setError('Only Gmail accounts are allowed. Please use a Gmail account.');
+        setUserMessage('');
+        return;
+      }
+
+      // Store user info temporarily
+      setAuthEmail(userEmail);
+      setUserMessage(`Processing sign-in for ${userName}...`);
+
+      // Send to our direct OAuth API instead of NextAuth
+      const result = await fetch('/api/auth/google-oauth', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          credential: response.credential
+        })
+      });
+
+      console.log('API Response status:', result.status);
+      
+      // Get response as text first to handle both JSON and HTML responses
+      const responseText = await result.text();
+      console.log('API Response text:', responseText);
+
+      let data;
+      try {
+        data = JSON.parse(responseText);
+      } catch (parseError) {
+        console.error('Failed to parse response as JSON:', parseError);
+        console.log('Raw response:', responseText);
+        throw new Error('Server returned invalid response: ' + responseText.substring(0, 100));
+      }
+
+      if (!result.ok) {
+        throw new Error(data.message || data.error || 'Sign-in failed');
+      }
+
+      console.log('OAuth API response:', data);
+
+      // Start the authorization flow
+      setAwaitingAuth(true);
+      setUserMessage(`Admin notification sent for ${userName}. Waiting for approval...`);
+
+      // Start polling your Upstash Redis-based authorization status
+      pollAuthorization(userEmail);
+
+    } catch (err) {
+      console.error('Google signin error:', err);
+      setError('Authentication failed: ' + err.message);
+      setUserMessage('');
+      setAwaitingAuth(false);
     }
-
-    if (!result.ok) {
-      throw new Error(data.message || data.error || 'Sign-in failed');
-    }
-
-    console.log('OAuth API response:', data);
-
-    // Start the authorization flow
-    setAwaitingAuth(true);
-    setUserMessage(`Admin notification sent for ${userName}. Waiting for approval...`);
-
-    // Start polling your Upstash Redis-based authorization status
-    pollAuthorization(userEmail);
-
-  } catch (err) {
-    console.error('Google signin error:', err);
-    setError('Authentication failed: ' + err.message);
-    setUserMessage('');
-    setAwaitingAuth(false);
-  }
-};
+  };
 
   // Function to cancel the authorization process
   const cancelAuthorization = () => {
@@ -275,13 +288,25 @@ const handleGoogleResponse = async (response) => {
     setError('');
   };
 
+  // Don't render anything until mounted to prevent hydration issues
+  if (!mounted) {
+    return (
+      <div className="min-h-screen bg-gray-100 flex items-center justify-center">
+        <div className="text-center">
+          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600 mx-auto mb-4"></div>
+          <p className="text-gray-600">Loading DiagnoVera...</p>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <>
       <Script
         src="https://accounts.google.com/gsi/client"
         strategy="afterInteractive"
         onLoad={() => {
-          if (window.google) {
+          if (window.google && mounted) {
             initializeGoogleSignIn();
           }
         }}
@@ -368,7 +393,7 @@ const handleGoogleResponse = async (response) => {
             <div className="logo" aria-hidden="true"></div>
             <div>
               <div style={{fontWeight:800}}>Diagnovera Inc.</div>
-              <div className="badge">DVeraâ„¢ AI OS</div>
+              <div className="badge">DVera™ AI OS</div>
             </div>
           </a>
           <nav>
@@ -386,41 +411,44 @@ const handleGoogleResponse = async (response) => {
       <section className="hero">
         <div className="container two">
           <div>
-            <h1>DVeraâ„¢: <span className="grad">Renal Subspecialty AI</span> â€“ Dialysis Analytics & CKD Management</h1>
+            <h1>DVera™: <span className="grad">Renal Subspecialty AI</span> – Dialysis Analytics & CKD Management</h1>
             <div className="tabs" role="tablist" aria-label="Focus areas">
-              <button className="tab active" role="tab" onClick={(e) => {
-                document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
-                document.querySelectorAll('.tab-panel').forEach(p => p.classList.remove('active'));
-                e.target.classList.add('active');
-                document.getElementById('tab1').classList.add('active');
-              }}>Renal Analytics</button>
-              <button className="tab" role="tab" onClick={(e) => {
-                document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
-                document.querySelectorAll('.tab-panel').forEach(p => p.classList.remove('active'));
-                e.target.classList.add('active');
-                document.getElementById('tab2').classList.add('active');
-              }}>Dialysis Quality</button>
-              <button className="tab" role="tab" onClick={(e) => {
-                document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
-                document.querySelectorAll('.tab-panel').forEach(p => p.classList.remove('active'));
-                e.target.classList.add('active');
-                document.getElementById('tab3').classList.add('active');
-              }}>CKD Management</button>
+              <button 
+                className={`tab ${activeTab === 'tab1' ? 'active' : ''}`} 
+                role="tab" 
+                onClick={() => setActiveTab('tab1')}
+              >
+                Renal Analytics
+              </button>
+              <button 
+                className={`tab ${activeTab === 'tab2' ? 'active' : ''}`} 
+                role="tab" 
+                onClick={() => setActiveTab('tab2')}
+              >
+                Dialysis Quality
+              </button>
+              <button 
+                className={`tab ${activeTab === 'tab3' ? 'active' : ''}`} 
+                role="tab" 
+                onClick={() => setActiveTab('tab3')}
+              >
+                CKD Management
+              </button>
             </div>
-            <p id="tab1" className="tab-panel active">
+            <p className={`tab-panel ${activeTab === 'tab1' ? 'active' : ''}`}>
               Multidimensional modeling fuses labs, imaging, vitals, and clinical notes to produce explainable differentials, probability curves, and sensitivity analyses for nephrology workflows.
             </p>
-            <p id="tab2" className="tab-panel">
+            <p className={`tab-panel ${activeTab === 'tab2' ? 'active' : ''}`}>
               Dialysis adequacy (Kt/V), access complication surveillance, trend break detection, and hospitalization reduction insights with configurable thresholds and alerts.
             </p>
-            <p id="tab3" className="tab-panel">
+            <p className={`tab-panel ${activeTab === 'tab3' ? 'active' : ''}`}>
               CKD progression analytics with eGFR trajectory modeling, albuminuria trend tracking, intervention timing, and high-risk patient stratification.
             </p>
           </div>
 
           <div id="login">
             <div className="login">
-              <h3 style={{margin:'0 0 8px'}}>DVeraâ„¢ Suite Access</h3>
+              <h3 style={{margin:'0 0 8px'}}>DVera™ Suite Access</h3>
 
               {awaitingAuth ? (
                 <div className="waiting">
@@ -450,7 +478,14 @@ const handleGoogleResponse = async (response) => {
                     <p>Gmail account required for access</p>
                   </div>
 
-                  <div id="googleSignInButton" style={{marginTop: '10px'}}></div>
+                  <div id="googleSignInButton" style={{marginTop: '10px'}}>
+                    {!googleLoaded && (
+                      <div className="text-center py-4">
+                        <div className="inline-block animate-spin rounded-full h-6 w-6 border-b-2 border-blue-600"></div>
+                        <p className="text-sm text-gray-500 mt-2">Loading sign-in...</p>
+                      </div>
+                    )}
+                  </div>
 
                   <div className="divider">or</div>
 
@@ -472,7 +507,7 @@ const handleGoogleResponse = async (response) => {
         </div>
       </section>
 
-      {/* Rest of the page content remains the same */}
+      {/* Rest of the sections remain the same but with React state management */}
       <section id="platform">
         <div className="container">
           <div className="badge" style={{color:'#4f46e5'}}>Platform</div>
@@ -600,27 +635,30 @@ const handleGoogleResponse = async (response) => {
           <h2>Dr. Mehrdad Ghahremani-Ghajar</h2>
           <div className="founder-wrap">
             <div className="f-tabs" role="tablist">
-              <button className="f-tab active" role="tab" onClick={(e) => {
-                document.querySelectorAll('.f-tab').forEach(t => t.classList.remove('active'));
-                document.querySelectorAll('.f-panel').forEach(p => p.classList.remove('active'));
-                e.target.classList.add('active');
-                document.getElementById('f1').classList.add('active');
-              }}>Academic Mission</button>
-              <button className="f-tab" role="tab" onClick={(e) => {
-                document.querySelectorAll('.f-tab').forEach(t => t.classList.remove('active'));
-                document.querySelectorAll('.f-panel').forEach(p => p.classList.remove('active'));
-                e.target.classList.add('active');
-                document.getElementById('f2').classList.add('active');
-              }}>Corporate Leadership</button>
-              <button className="f-tab" role="tab" onClick={(e) => {
-                document.querySelectorAll('.f-tab').forEach(t => t.classList.remove('active'));
-                document.querySelectorAll('.f-panel').forEach(p => p.classList.remove('active'));
-                e.target.classList.add('active');
-                document.getElementById('f3').classList.add('active');
-              }}>Innovation Pitch</button>
+              <button 
+                className={`f-tab ${activeFounderTab === 'f1' ? 'active' : ''}`} 
+                role="tab" 
+                onClick={() => setActiveFounderTab('f1')}
+              >
+                Academic Mission
+              </button>
+              <button 
+                className={`f-tab ${activeFounderTab === 'f2' ? 'active' : ''}`} 
+                role="tab" 
+                onClick={() => setActiveFounderTab('f2')}
+              >
+                Corporate Leadership
+              </button>
+              <button 
+                className={`f-tab ${activeFounderTab === 'f3' ? 'active' : ''}`} 
+                role="tab" 
+                onClick={() => setActiveFounderTab('f3')}
+              >
+                Innovation Pitch
+              </button>
             </div>
 
-            <div id="f1" className="f-panel active">
+            <div className={`f-panel ${activeFounderTab === 'f1' ? 'active' : ''}`}>
               <div className="bullet">
                 <span className="dot"></span>
                 <div><strong>Mission:</strong> advance nephrology through transparent, clinically-sound AI that complements physician judgment.</div>
@@ -635,37 +673,34 @@ const handleGoogleResponse = async (response) => {
               </div>
             </div>
 
-            <div id="f2" className="f-panel">
-              <div className="accord" id="a1">
-                <button type="button" onClick={(e) => {
-                  const accord = e.target.closest('.accord');
-                  accord.classList.toggle('open');
-                }}>Executive Profile</button>
+            <div className={`f-panel ${activeFounderTab === 'f2' ? 'active' : ''}`}>
+              <div className={`accord ${openAccordion === 'a1' ? 'open' : ''}`}>
+                <button type="button" onClick={() => setOpenAccordion(openAccordion === 'a1' ? null : 'a1')}>
+                  Executive Profile
+                </button>
                 <div className="content">
-                  Nephrology physician and founder leading strategy, clinical safety, and model governance for DVeraâ„¢ â€“ aligning scientific rigor with operational scalability.
+                  Nephrology physician and founder leading strategy, clinical safety, and model governance for DVera™ – aligning scientific rigor with operational scalability.
                 </div>
               </div>
-              <div className="accord" id="a2">
-                <button type="button" onClick={(e) => {
-                  const accord = e.target.closest('.accord');
-                  accord.classList.toggle('open');
-                }}>Clinical Governance</button>
+              <div className={`accord ${openAccordion === 'a2' ? 'open' : ''}`}>
+                <button type="button" onClick={() => setOpenAccordion(openAccordion === 'a2' ? null : 'a2')}>
+                  Clinical Governance
+                </button>
                 <div className="content">
                   Oversees evidence standards, labeling of models, bias monitoring, release criteria, and M&M-style review for adverse model events.
                 </div>
               </div>
-              <div className="accord" id="a3">
-                <button type="button" onClick={(e) => {
-                  const accord = e.target.closest('.accord');
-                  accord.classList.toggle('open');
-                }}>Partner Engagement</button>
+              <div className={`accord ${openAccordion === 'a3' ? 'open' : ''}`}>
+                <button type="button" onClick={() => setOpenAccordion(openAccordion === 'a3' ? null : 'a3')}>
+                  Partner Engagement
+                </button>
                 <div className="content">
                   Leads collaborations with health systems, dialysis providers, and payors to define outcomes-based deployments and value measurement.
                 </div>
               </div>
             </div>
 
-            <div id="f3" className="f-panel">
+            <div className={`f-panel ${activeFounderTab === 'f3' ? 'active' : ''}`}>
               <div className="bullet">
                 <span className="dot"></span>
                 <div><strong>Thesis:</strong> Multidimensional modeling + explainable analytics will close the gap between raw EHR data and real-time renal decision support.</div>
@@ -678,11 +713,10 @@ const handleGoogleResponse = async (response) => {
                 <span className="dot"></span>
                 <div><strong>Outcomes:</strong> earlier CKD interventions, fewer dialysis complications, targeted care pathways, and documentation improvements.</div>
               </div>
-              <div className="accord" id="a4">
-                <button type="button" onClick={(e) => {
-                  const accord = e.target.closest('.accord');
-                  accord.classList.toggle('open');
-                }}>Roadmap Snapshot</button>
+              <div className={`accord ${openAccordion === 'a4' ? 'open' : ''}`}>
+                <button type="button" onClick={() => setOpenAccordion(openAccordion === 'a4' ? null : 'a4')}>
+                  Roadmap Snapshot
+                </button>
                 <div className="content">
                   Milestones include expansion of dialysis analytics, transplant graft surveillance features, and configurable risk stratification for population health.
                 </div>
@@ -715,7 +749,7 @@ const handleGoogleResponse = async (response) => {
 
       <footer>
         <div className="container" style={{display:'flex',alignItems:'center',justifyContent:'space-between',gap:'12px',flexWrap:'wrap'}}>
-          <div>Â© {new Date().getFullYear()} Diagnovera Inc. All rights reserved.</div>
+          <div suppressHydrationWarning>© {new Date().getFullYear()} Diagnovera Inc. All rights reserved.</div>
           <div style={{display:'flex',gap:'18px',fontWeight:600}}>
             <a href="#enterprise" style={{color:'inherit',textDecoration:'none'}}>Enterprise</a>
             <a href="#security" style={{color:'inherit',textDecoration:'none'}}>Security</a>
