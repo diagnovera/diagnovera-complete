@@ -196,54 +196,67 @@ const websocketService = new WebSocketService();
 // Data cache
 const dataCache = new Map();
 
-// Fallback data with comprehensive medical data
+// Comprehensive fallback data including procedures and pathology
 const getFallbackData = (dataFile) => {
   const fallbacks = {
     symptoms: [
       'Chest pain', 'Shortness of breath', 'Fever', 'Cough', 'Fatigue', 'Headache', 
       'Nausea', 'Dizziness', 'Abdominal pain', 'Joint pain', 'Muscle weakness',
-      'Palpitations', 'Sweating', 'Chills', 'Loss of appetite', 'Weight loss'
+      'Palpitations', 'Sweating', 'Chills', 'Loss of appetite', 'Weight loss',
+      'Night sweats', 'Confusion', 'Memory loss', 'Vision changes', 'Hearing loss',
+      'Tinnitus', 'Vertigo', 'Syncope', 'Seizures', 'Tremor', 'Weakness',
+      'Numbness', 'Tingling', 'Burning sensation', 'Itching', 'Rash',
+      'Bruising', 'Bleeding', 'Swelling', 'Stiffness', 'Cramping'
     ],
     medications: [
       'Aspirin', 'Metoprolol', 'Lisinopril', 'Atorvastatin', 'Metformin', 
       'Levothyroxine', 'Amlodipine', 'Omeprazole', 'Albuterol', 'Furosemide',
       'Warfarin', 'Insulin', 'Prednisone', 'Amoxicillin', 'Hydrochlorothiazide',
-      'Gabapentin', 'Sertraline', 'Ibuprofen', 'Acetaminophen', 'Losartan'
+      'Gabapentin', 'Sertraline', 'Ibuprofen', 'Acetaminophen', 'Losartan',
+      'Simvastatin', 'Clopidogrel', 'Pantoprazole', 'Tramadol', 'Alprazolam',
+      'Zolpidem', 'Fluticasone', 'Montelukast', 'Duloxetine', 'Venlafaxine',
+      'Escitalopram', 'Bupropion', 'Trazodone', 'Quetiapine', 'Aripiprazole'
     ],
     allergies: [
       'Penicillin', 'Sulfa drugs', 'Latex', 'Peanuts', 'Shellfish', 'Eggs',
       'Milk', 'Soy', 'Tree nuts', 'Wheat', 'Iodine', 'Aspirin', 'NSAIDs',
-      'Codeine', 'Morphine', 'Contrast dye', 'Bee stings', 'Dust mites'
+      'Codeine', 'Morphine', 'Contrast dye', 'Bee stings', 'Dust mites',
+      'Pet dander', 'Pollen', 'Mold', 'Nickel', 'Adhesive tape', 'Bandages'
     ],
     medicalhistory: [
       'Hypertension', 'Diabetes Type 2', 'Hyperlipidemia', 'GERD', 'Asthma',
       'COPD', 'Coronary artery disease', 'Heart failure', 'Atrial fibrillation',
       'Stroke', 'Depression', 'Anxiety', 'Osteoarthritis', 'Osteoporosis',
-      'Chronic kidney disease', 'Hypothyroidism', 'Cancer history'
+      'Chronic kidney disease', 'Hypothyroidism', 'Cancer history', 'Anemia',
+      'Sleep apnea', 'Migraine', 'Epilepsy', 'Parkinson disease', 'Dementia'
     ],
     surgicalhistory: [
       'Appendectomy', 'Cholecystectomy', 'Knee arthroscopy', 'Hernia repair',
       'Coronary bypass', 'Hip replacement', 'Cataract surgery', 'Tonsillectomy',
       'Gallbladder removal', 'Colonoscopy', 'Endoscopy', 'Cardiac catheterization',
-      'Pacemaker insertion', 'Stent placement', 'Thyroidectomy'
+      'Pacemaker insertion', 'Stent placement', 'Thyroidectomy', 'Mastectomy',
+      'Prostatectomy', 'Hysterectomy', 'Cesarean section', 'Vasectomy'
     ],
     labwork: [
       'Complete Blood Count', 'Basic Metabolic Panel', 'Comprehensive Metabolic Panel',
       'Lipid Panel', 'Liver Function Tests', 'Thyroid Function Tests', 'HbA1c',
       'Troponin', 'BNP', 'D-dimer', 'CRP', 'ESR', 'PT/INR', 'PTT', 'Urinalysis',
-      'Urine Culture', 'Blood Culture', 'Cardiac Enzymes', 'Arterial Blood Gas'
+      'Urine Culture', 'Blood Culture', 'Cardiac Enzymes', 'Arterial Blood Gas',
+      'Ammonia', 'Lactate', 'Procalcitonin', 'Beta-HCG', 'PSA', 'CEA', 'CA 19-9'
     ],
     imaging: [
       'Chest X-ray', 'CT Chest', 'CT Abdomen/Pelvis', 'CT Head', 'MRI Brain',
       'MRI Spine', 'Echocardiogram', 'EKG', 'Stress Test', 'Ultrasound Abdomen',
       'Ultrasound Pelvis', 'Mammogram', 'DEXA Scan', 'Nuclear Medicine Scan',
-      'PET Scan', 'Angiogram', 'Doppler Studies', 'Bone Scan'
+      'PET Scan', 'Angiogram', 'Doppler Studies', 'Bone Scan', 'Thyroid Ultrasound',
+      'Renal Ultrasound', 'Cardiac MRI', 'Abdominal MRI', 'Pelvic MRI'
     ],
     chiefcomplaint: [
       'Acute MI', 'Pneumonia', 'Heart Failure', 'COPD Exacerbation', 
       'Pulmonary Embolism', 'Stroke', 'Sepsis', 'Urinary Tract Infection',
       'Diabetic Ketoacidosis', 'Hypertensive Crisis', 'Acute Kidney Injury',
-      'Gastroenteritis', 'Appendicitis', 'Cholangitis', 'Pancreatitis'
+      'Gastroenteritis', 'Appendicitis', 'Cholangitis', 'Pancreatitis',
+      'Bowel Obstruction', 'GI Bleeding', 'Syncope', 'Seizure', 'Altered Mental Status'
     ],
     procedures: [
       'Cardiac catheterization', 'Coronary angioplasty', 'Pacemaker insertion',
@@ -251,32 +264,51 @@ const getFallbackData = (dataFile) => {
       'Thoracentesis', 'Paracentesis', 'Bronchoscopy', 'Upper endoscopy',
       'Colonoscopy', 'Arterial line placement', 'Chest tube insertion',
       'Dialysis catheter placement', 'Swan-Ganz catheter insertion',
-      'Foley catheter insertion', 'Nasogastric tube placement', 'Tracheostomy'
+      'Foley catheter insertion', 'Nasogastric tube placement', 'Tracheostomy',
+      'ERCP', 'Liver biopsy', 'Kidney biopsy', 'Bone marrow biopsy',
+      'Epicardial lead placement', 'ICD implantation', 'CABG', 'Valve replacement',
+      'TAVR', 'MitraClip', 'Watchman device', 'PFO closure', 'ASD closure',
+      'VSD closure', 'Angioplasty', 'Stent placement', 'Atherectomy',
+      'Thrombectomy', 'Embolization', 'Ablation', 'Drainage procedure',
+      'Mechanical ventilation', 'ECMO', 'IABP', 'Temporary pacing',
+      'Cardioversion', 'Defibrillation', 'CPR', 'Advanced airway management',
+      'Ultrasound-guided procedures', 'CT-guided biopsy', 'MRI-guided biopsy'
     ],
     pathology: [
       'Acute inflammation', 'Chronic inflammation', 'Necrosis', 'Fibrosis',
       'Hyperplasia', 'Dysplasia', 'Metaplasia', 'Anaplasia', 'Atherosclerosis',
       'Thrombosis', 'Embolism', 'Ischemia', 'Infarction', 'Edema',
       'Hemorrhage', 'Congestion', 'Hypertrophy', 'Atrophy', 'Calcification',
-      'Amyloidosis', 'Malignancy', 'Benign tumor', 'Infection', 'Autoimmune'
+      'Amyloidosis', 'Malignancy', 'Benign tumor', 'Infection', 'Autoimmune',
+      'Adenocarcinoma', 'Squamous cell carcinoma', 'Lymphoma', 'Sarcoma',
+      'Granulomatous inflammation', 'Vasculitis', 'Apoptosis', 'Metastasis',
+      'Carcinoma in situ', 'Invasive carcinoma', 'Well differentiated',
+      'Moderately differentiated', 'Poorly differentiated', 'Undifferentiated',
+      'Pleomorphism', 'Mitotic activity', 'Nuclear atypia', 'Cellular atypia',
+      'Reactive changes', 'Regenerative changes', 'Degenerative changes',
+      'Ischemic changes', 'Hemorrhagic changes', 'Inflammatory infiltrate',
+      'Fibroblastic proliferation', 'Angiogenesis', 'Lymphangiogenesis'
     ],
     physicalexam: [
       'Normal', 'Abnormal heart sounds', 'Murmur', 'Rales', 'Wheezes',
       'Decreased breath sounds', 'Lymphadenopathy', 'Hepatomegaly', 'Splenomegaly',
       'Abdominal tenderness', 'Rebound tenderness', 'Guarding', 'Edema',
-      'Cyanosis', 'Jaundice', 'Rash', 'Altered mental status'
+      'Cyanosis', 'Jaundice', 'Rash', 'Altered mental status', 'Clubbing',
+      'Pallor', 'Diaphoresis', 'Dehydration', 'Fever', 'Hypothermia'
     ],
     familyhistory: [
       'Heart disease', 'Diabetes', 'Cancer', 'Stroke', 'Hypertension',
       'High cholesterol', 'Mental illness', 'Kidney disease', 'Liver disease',
       'Autoimmune disease', 'Alzheimer disease', 'Parkinson disease',
-      'Genetic disorders', 'Blood disorders', 'Thyroid disease'
+      'Genetic disorders', 'Blood disorders', 'Thyroid disease', 'Osteoporosis',
+      'Asthma', 'COPD', 'Epilepsy', 'Migraine', 'Substance abuse'
     ],
     socialhistory: [
       'Never smoker', 'Former smoker', 'Current smoker', 'Never alcohol',
       'Social drinker', 'Heavy alcohol use', 'Illicit drug use', 'Married',
       'Single', 'Divorced', 'Widowed', 'Employed', 'Unemployed', 'Retired',
-      'Student', 'Lives alone', 'Lives with family', 'Exercise regularly'
+      'Student', 'Lives alone', 'Lives with family', 'Exercise regularly',
+      'Sedentary lifestyle', 'Occupational exposures', 'Travel history'
     ],
     vitals: [
       'Temperature', 'Heart Rate', 'Blood Pressure', 'Respiratory Rate',
@@ -292,7 +324,7 @@ const getFallbackData = (dataFile) => {
   return fallbacks[dataFile] || [];
 };
 
-// Data loader hook with enhanced error handling
+// Enhanced data loader with comprehensive error handling
 const useDataLoader = (dataFile) => {
   const [data, setData] = useState([]);
   const [loading, setLoading] = useState(false);
@@ -311,7 +343,6 @@ const useDataLoader = (dataFile) => {
       setError(null);
 
       try {
-        // Try multiple paths for data files
         let response;
         const possiblePaths = [
           `/data/${dataFile}.json`,
@@ -383,7 +414,7 @@ export const preloadDataFiles = (files) => {
   });
 };
 
-// Enhanced EpicAutocompleteField component
+// Enhanced EpicAutocompleteField component for all dropdown menus including procedures and pathology
 const EpicAutocompleteField = ({
   label,
   dataFile,
@@ -575,7 +606,7 @@ const EpicAutocompleteField = ({
   );
 };
 
-// Imaging Field Component
+// Enhanced Imaging Field Component for imaging studies with findings
 const EpicImagingField = ({
   label,
   dataFile,
@@ -750,7 +781,374 @@ const EpicImagingField = ({
   );
 };
 
-// Lab Field Component
+// Enhanced EpicAutocompleteField component for all dropdown menus including procedures and pathology
+const EpicAutocompleteField = ({
+  label,
+  dataFile,
+  value,
+  onChange,
+  placeholder,
+  multiple = false,
+  color = "#5B9BD5",
+  maxResults = 50
+}) => {
+  const [isOpen, setIsOpen] = useState(false);
+  const [searchTerm, setSearchTerm] = useState("");
+  const dropdownRef = useRef(null);
+  const inputRef = useRef(null);
+
+  const { data: options, loading, error } = useDataLoader(dataFile);
+
+  const filteredOptions = useMemo(() => {
+    if (!Array.isArray(options)) return [];
+    
+    if (!searchTerm || searchTerm.length === 0) {
+      return options.slice(0, maxResults);
+    }
+
+    const lowerSearchTerm = searchTerm.toLowerCase();
+    const filtered = options
+      .filter(option => option && typeof option === 'string' && option.toLowerCase().includes(lowerSearchTerm))
+      .slice(0, maxResults);
+
+    return filtered;
+  }, [searchTerm, options, maxResults]);
+
+  useEffect(() => {
+    const handleClickOutside = (event) => {
+      if (dropdownRef.current && !dropdownRef.current.contains(event.target)) {
+        setIsOpen(false);
+      }
+    };
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, []);
+
+  const handleSelect = useCallback((option) => {
+    try {
+      if (multiple) {
+        const newValue = Array.isArray(value) ? value : [];
+        const updatedValue = newValue.includes(option)
+          ? newValue.filter(v => v !== option)
+          : [...newValue, option];
+        onChange(updatedValue);
+        setSearchTerm("");
+      } else {
+        onChange(option);
+        setIsOpen(false);
+        setSearchTerm("");
+      }
+      if (inputRef.current) {
+        inputRef.current.value = "";
+      }
+    } catch (err) {
+      console.error('Error handling selection:', err);
+    }
+  }, [multiple, value, onChange]);
+
+  const removeItem = useCallback((item, e) => {
+    try {
+      e.stopPropagation();
+      const newValue = Array.isArray(value) ? value.filter(v => v !== item) : [];
+      onChange(newValue);
+    } catch (err) {
+      console.error('Error removing item:', err);
+    }
+  }, [value, onChange]);
+
+  const displayValue = Array.isArray(value) ? value : (value ? [value] : []);
+
+  return (
+    <div className="mb-3" ref={dropdownRef}>
+      <div className="flex items-center mb-1">
+        <div
+          className="w-2 h-2 rounded-full mr-2"
+          style={{ backgroundColor: color }}
+        />
+        <label className="text-xs font-semibold text-gray-700 uppercase tracking-wide">
+          {label}
+        </label>
+        {loading && (
+          <Loader2 className="ml-2 h-3 w-3 animate-spin text-gray-400" />
+        )}
+        {error && (
+          <span className="ml-2 text-xs text-orange-500" title={`Error loading ${dataFile}: ${error}`}>
+            (fallback)
+          </span>
+        )}
+      </div>
+
+      <div
+        className="relative bg-white border-2 border-gray-200 hover:border-[#4a90e2] transition-all"
+        style={{ borderLeftColor: color, borderLeftWidth: "4px" }}
+      >
+        <div className="flex items-center p-2 min-h-[36px]">
+          {displayValue.length > 0 && (
+            <div className="flex flex-wrap gap-1 mr-2">
+              {displayValue.slice(0, 2).map((item, index) => (
+                <span
+                  key={index}
+                  className="inline-flex items-center px-2 py-0.5 text-xs font-medium bg-blue-50 text-blue-800 rounded"
+                  style={{ backgroundColor: `${color}20`, color: color }}
+                >
+                  {item}
+                  {multiple && (
+                    <button
+                      onClick={(e) => removeItem(item, e)}
+                      className="ml-1 hover:text-red-600"
+                    >
+                      <X size={10} />
+                    </button>
+                  )}
+                </span>
+              ))}
+              {displayValue.length > 2 && (
+                <span className="text-xs text-gray-500">+{displayValue.length - 2}</span>
+              )}
+            </div>
+          )}
+
+          <input
+            ref={inputRef}
+            type="text"
+            value={searchTerm}
+            onChange={(e) => {
+              setSearchTerm(e.target.value);
+              setIsOpen(true);
+            }}
+            onFocus={() => setIsOpen(true)}
+            onClick={() => setIsOpen(true)}
+            placeholder={displayValue.length === 0 ? placeholder : "Search..."}
+            className="flex-1 outline-none text-sm bg-transparent"
+          />
+
+          <ChevronDown
+            onClick={(e) => {
+              e.stopPropagation();
+              setIsOpen(!isOpen);
+              inputRef.current?.focus();
+            }}
+            className={`ml-2 h-3 w-3 text-gray-400 transition-transform cursor-pointer ${isOpen ? "rotate-180" : ""}`}
+          />
+        </div>
+
+        {isOpen && (
+          <div className="absolute z-[100] w-full mt-1 bg-white border-2 border-[#4a90e2] shadow-lg max-h-64 overflow-auto">
+            {loading ? (
+              <div className="p-3 text-gray-500 text-center text-sm">
+                <Loader2 className="h-4 w-4 animate-spin mx-auto mb-1" />
+                Loading options...
+              </div>
+            ) : filteredOptions.length === 0 ? (
+              <div className="p-3 text-gray-500 text-center text-sm">
+                {searchTerm ? `No matches found for "${searchTerm}"` : "Start typing to search..."}
+              </div>
+            ) : (
+              <>
+                {searchTerm && (
+                  <div className="p-2 bg-gray-50 border-b text-xs text-gray-600 sticky top-0">
+                    Showing {filteredOptions.length} results for "{searchTerm}"
+                  </div>
+                )}
+                {filteredOptions.map((option, index) => (
+                  <div
+                    key={index}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      handleSelect(option);
+                    }}
+                    className={`px-3 py-2 text-sm hover:bg-blue-50 cursor-pointer ${
+                      displayValue.includes(option) ? "bg-blue-100 font-medium" : ""
+                    }`}
+                  >
+                    {option}
+                  </div>
+                ))}
+              </>
+            )}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+};
+
+// Enhanced Imaging Field Component for imaging studies with findings
+const EpicImagingField = ({
+  label,
+  dataFile,
+  value,
+  onChange,
+  placeholder,
+  color = '#FECA57',
+  maxResults = 50,
+  debounceMs = 300
+}) => {
+  const [isOpen, setIsOpen] = useState(false);
+  const [searchTerm, setSearchTerm] = useState('');
+  const [debouncedSearchTerm, setDebouncedSearchTerm] = useState('');
+  const dropdownRef = useRef(null);
+  const searchTimeoutRef = useRef(null);
+
+  const { data: options, loading } = useDataLoader(dataFile);
+
+  useEffect(() => {
+    if (searchTimeoutRef.current) {
+      clearTimeout(searchTimeoutRef.current);
+    }
+
+    searchTimeoutRef.current = setTimeout(() => {
+      setDebouncedSearchTerm(searchTerm);
+    }, debounceMs);
+
+    return () => {
+      if (searchTimeoutRef.current) {
+        clearTimeout(searchTimeoutRef.current);
+      }
+    };
+  }, [searchTerm, debounceMs]);
+
+  const filteredOptions = useMemo(() => {
+    if (!Array.isArray(options)) return [];
+    if (!debouncedSearchTerm) return options.slice(0, maxResults);
+
+    const lowerSearchTerm = debouncedSearchTerm.toLowerCase();
+    const filtered = [];
+
+    for (let i = 0; i < options.length && filtered.length < maxResults; i++) {
+      if (options[i] && typeof options[i] === 'string' && options[i].toLowerCase().includes(lowerSearchTerm)) {
+        filtered.push(options[i]);
+      }
+    }
+
+    return filtered;
+  }, [debouncedSearchTerm, options, maxResults]);
+
+  const handleSelect = useCallback((option) => {
+    try {
+      const currentImaging = Array.isArray(value) ? value : [];
+      if (!currentImaging.find(img => img.study === option)) {
+        onChange([...currentImaging, { study: option, findings: '' }]);
+      }
+      setIsOpen(false);
+      setSearchTerm('');
+      setDebouncedSearchTerm('');
+      const input = dropdownRef.current?.querySelector('input[type="text"]');
+      if (input) {
+        input.value = '';
+      }
+    } catch (err) {
+      console.error('Error selecting imaging:', err);
+    }
+  }, [value, onChange]);
+
+  const updateFindings = useCallback((study, findings) => {
+    try {
+      const currentImaging = Array.isArray(value) ? value : [];
+      onChange(currentImaging.map(img =>
+        img.study === study ? { ...img, findings } : img
+      ));
+    } catch (err) {
+      console.error('Error updating findings:', err);
+    }
+  }, [value, onChange]);
+
+  const removeItem = useCallback((study) => {
+    try {
+      onChange((Array.isArray(value) ? value : []).filter(img => img.study !== study));
+    } catch (err) {
+      console.error('Error removing imaging:', err);
+    }
+  }, [value, onChange]);
+
+  const displayImaging = Array.isArray(value) ? value : [];
+
+  return (
+    <div className="mb-3" ref={dropdownRef}>
+      <div className="flex items-center mb-1">
+        <div className="w-2 h-2 rounded-full mr-2" style={{ backgroundColor: color }} />
+        <label className="text-xs font-semibold text-gray-700 uppercase tracking-wide">{label}</label>
+        {loading && (
+          <Loader2 className="ml-2 h-3 w-3 animate-spin text-gray-400" />
+        )}
+      </div>
+
+      {displayImaging.map((img, index) => (
+        <div key={index} className="mb-2 p-2 bg-yellow-50 border border-yellow-200">
+          <div className="flex items-start gap-2">
+            <div className="flex-1">
+              <div className="text-sm font-medium text-gray-800">{img.study}</div>
+              <textarea
+                placeholder="Enter imaging findings..."
+                value={img.findings}
+                onChange={(e) => updateFindings(img.study, e.target.value)}
+                className="w-full mt-1 p-2 text-sm border border-gray-300 rounded resize-none"
+                rows="2"
+              />
+            </div>
+            <button onClick={() => removeItem(img.study)} className="text-red-500 p-1">
+              <X size={14} />
+            </button>
+          </div>
+        </div>
+      ))}
+
+      <div
+        className="relative bg-white border-2 border-gray-200 hover:border-[#FECA57]"
+        style={{ borderLeftColor: color, borderLeftWidth: '4px' }}
+        onClick={() => setIsOpen(!isOpen)}
+      >
+        <div className="flex items-center p-2">
+          <input
+            type="text"
+            value={searchTerm}
+            onChange={(e) => {
+              setSearchTerm(e.target.value);
+              if (!isOpen) setIsOpen(true);
+            }}
+            placeholder={placeholder}
+            className="flex-1 outline-none text-sm"
+            onFocus={() => setIsOpen(true)}
+          />
+          <ChevronDown className="ml-2 h-3 w-3 text-gray-400" />
+        </div>
+
+        {isOpen && (
+          <div className="absolute z-[100] w-full mt-1 bg-white border-2 border-[#FECA57] shadow-lg max-h-48 overflow-auto">
+            {loading ? (
+              <div className="p-3 text-gray-500 text-center text-sm">
+                <Loader2 className="h-4 w-4 animate-spin mx-auto mb-1" />
+                Loading options...
+              </div>
+            ) : (
+              <>
+                {debouncedSearchTerm && (
+                  <div className="p-2 bg-gray-50 border-b text-xs text-gray-600">
+                    Showing {filteredOptions.length} results
+                  </div>
+                )}
+                {filteredOptions.map((option, index) => (
+                  <div
+                    key={index}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      handleSelect(option);
+                    }}
+                    className="px-3 py-2 text-sm hover:bg-yellow-50 cursor-pointer"
+                  >
+                    {option}
+                  </div>
+                ))}
+              </>
+            )}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+};
+
+// Enhanced Lab Field Component for laboratory tests with values and units
 const EpicLabField = ({
   label,
   dataFile,
@@ -928,7 +1326,7 @@ const EpicLabField = ({
   );
 };
 
-// Complex Plane Visualization
+// Complex Plane Visualization Component
 const ComplexPlaneChart = React.memo(({ data, showConnections, showLabels, selectedDomains }) => {
   const svgRef = useRef(null);
   const [d3Module, setD3Module] = useState(null);
@@ -1130,7 +1528,7 @@ const ComplexPlaneChart = React.memo(({ data, showConnections, showLabels, selec
   );
 });
 
-// Enhanced Kuramoto Analysis with differential diagnosis
+// Enhanced Kuramoto Analysis with differential diagnosis integration
 const KuramotoAnalysis = ({ data, aiResults }) => {
   const svgRef = useRef(null);
   const animationRef = useRef(null);
@@ -1559,7 +1957,7 @@ const KuramotoAnalysis = ({ data, aiResults }) => {
   );
 };
 
-// Enhanced Bayesian Analysis Component - uses aiResults and charts differential diagnoses
+// Enhanced Bayesian Analysis Component with AI integration
 const BayesianAnalysis = ({ patientData, processedData, suspectedDiagnoses = [], aiResults }) => {
   const svgRef = useRef(null);
   const [d3Module, setD3Module] = useState(null);
@@ -1572,7 +1970,7 @@ const BayesianAnalysis = ({ patientData, processedData, suspectedDiagnoses = [],
 
   const hasData = patientData && processedData && Object.values(processedData).flat().length > 0;
 
-  // Extract probabilities from aiResults instead of calculating manually
+  // Extract probabilities from aiResults
   const posteriorProbabilities = useMemo(() => {
     if (!hasData) return [];
 
@@ -1581,14 +1979,13 @@ const BayesianAnalysis = ({ patientData, processedData, suspectedDiagnoses = [],
     // Use AI results if available
     if (aiResults && aiResults.differential_diagnoses) {
       results = aiResults.differential_diagnoses.map((diagnosis, idx) => {
-        let probability = 0.1; // default
-        let confidence = 0.5; // default
+        let probability = 0.1;
+        let confidence = 0.5;
         
         if (typeof diagnosis === 'object') {
           probability = diagnosis.probability || diagnosis.confidence || (0.9 - idx * 0.15);
           confidence = diagnosis.confidence || diagnosis.probability || 0.5;
         } else {
-          // String diagnosis, assign decreasing probability
           probability = 0.9 - idx * 0.15;
         }
 
@@ -1668,6 +2065,7 @@ const BayesianAnalysis = ({ patientData, processedData, suspectedDiagnoses = [],
       .range([height, 0])
       .domain([0, Math.max(...posteriorProbabilities.map(d => d.probability))]);
 
+    // Gradients for different data sources
     const gradientAI = svg.append("defs")
       .append("linearGradient")
       .attr("id", "bar-gradient-ai")
@@ -1710,6 +2108,7 @@ const BayesianAnalysis = ({ patientData, processedData, suspectedDiagnoses = [],
       .attr("offset", "100%")
       .attr("stop-color", "#219a52");
 
+    // Draw bars with animation
     g.selectAll(".bar")
       .data(posteriorProbabilities)
       .enter().append("rect")
@@ -1727,6 +2126,7 @@ const BayesianAnalysis = ({ patientData, processedData, suspectedDiagnoses = [],
       .attr("y", d => y(d.probability))
       .attr("height", d => height - y(d.probability));
 
+    // Probability labels
     g.selectAll(".text")
       .data(posteriorProbabilities)
       .enter().append("text")
@@ -1737,6 +2137,7 @@ const BayesianAnalysis = ({ patientData, processedData, suspectedDiagnoses = [],
       .attr("font-weight", "bold")
       .text(d => (d.probability * 100).toFixed(1) + '%');
 
+    // Source labels
     g.selectAll(".likelihood")
       .data(posteriorProbabilities)
       .enter().append("text")
@@ -1750,7 +2151,7 @@ const BayesianAnalysis = ({ patientData, processedData, suspectedDiagnoses = [],
         d.isEstimated ? 'EST' :
         `L: ${d.likelihood.toFixed(2)}`);
 
-    // X axis with proper spacing
+    // X axis with rotated labels
     g.append("g")
       .attr("transform", `translate(0,${height})`)
       .call(d3Module.axisBottom(x))
@@ -1774,7 +2175,7 @@ const BayesianAnalysis = ({ patientData, processedData, suspectedDiagnoses = [],
       .attr("font-weight", "bold")
       .text("AI-Enhanced Diagnostic Probability Analysis");
 
-    // Legend with proper positioning
+    // Legend
     const legend = svg.append("g")
       .attr("transform", `translate(${width + margin.left - 80}, 40)`);
 
@@ -2070,7 +2471,7 @@ const ClaudeResultsDisplay = ({ results }) => {
   );
 };
 
-// Main Component
+// Main DiagnoVera Enterprise Interface Component
 const DiagnoVeraEnterpriseInterface = () => {
   // Hydration protection
   const [hasMounted, setHasMounted] = useState(false);
@@ -2097,8 +2498,8 @@ const DiagnoVeraEnterpriseInterface = () => {
       },
       laboratory: [],
       imaging: [],
-      procedures: [],
-      pathology: [],
+      procedures: [],  // PROCEDURES DROPDOWN DATA
+      pathology: [],   // PATHOLOGY DROPDOWN DATA
       examFindings: []
     }
   });
@@ -2165,30 +2566,19 @@ const DiagnoVeraEnterpriseInterface = () => {
     };
   }, [hasMounted]);
 
-  // Preload ALL data files on mount
+  // Preload ALL data files including procedures and pathology
   useEffect(() => {
     if (!hasMounted) return;
     
     const allDataFiles = [
-      'symptoms',
-      'medications', 
-      'allergies',
-      'medicalhistory',
-      'surgicalhistory',
-      'familyhistory',
-      'socialhistory',
-      'vitals',
-      'labwork',
-      'imaging',
-      'chiefcomplaint',
-      'procedures',
-      'pathology',
-      'physicalexam',
-      'reviewofsystems'
+      'symptoms', 'medications', 'allergies', 'medicalhistory', 'surgicalhistory',
+      'familyhistory', 'socialhistory', 'vitals', 'labwork', 'imaging',
+      'chiefcomplaint', 'procedures', 'pathology', 'physicalexam', 'reviewofsystems'
     ];
     preloadDataFiles(allDataFiles);
   }, [hasMounted]);
 
+  // Update functions for all data fields
   const updateDemographics = useCallback((field, value) => {
     setPatientData(prev => ({
       ...prev,
@@ -2227,6 +2617,7 @@ const DiagnoVeraEnterpriseInterface = () => {
     }));
   }, []);
 
+  // CRITICAL: Procedures and Pathology update functions
   const updateProcedures = useCallback((value) => {
     setPatientData(prev => ({
       ...prev,
@@ -2321,7 +2712,7 @@ const DiagnoVeraEnterpriseInterface = () => {
       });
     });
 
-    // Process procedures
+    // Process procedures - CRITICAL FOR YOUR DROPDOWN
     patientData.objective.procedures.forEach((proc, idx) => {
       const angle = 45 + (idx * 20);
       const magnitude = 0.6 + Math.random() * 0.4;
@@ -2335,7 +2726,7 @@ const DiagnoVeraEnterpriseInterface = () => {
       });
     });
 
-    // Process pathology
+    // Process pathology - CRITICAL FOR YOUR DROPDOWN
     patientData.objective.pathology.forEach((path, idx) => {
       const angle = 135 + (idx * 25);
       const magnitude = 0.5 + Math.random() * 0.5;
@@ -2388,13 +2779,10 @@ const DiagnoVeraEnterpriseInterface = () => {
         return;
       }
 
-      // Enhanced payload for Claude AI analysis
+      // Enhanced payload for Claude AI analysis including procedures and pathology
       const payload = {
-        // Patient identification
         patient_id: patientData.demographics.mrn || `TEMP-${Date.now()}`,
         timestamp: new Date().toISOString(),
-
-        // Demographics
         age: patientData.demographics.age || '',
         gender: patientData.demographics.sex || 'Unknown',
         demographics: {
@@ -2402,41 +2790,29 @@ const DiagnoVeraEnterpriseInterface = () => {
           age: patientData.demographics.age || '',
           sex: patientData.demographics.sex || 'Unknown'
         },
-
-        // Clinical data
         chief_complaint: patientData.subjective.chiefComplaint || '',
         symptoms: patientData.subjective.symptoms || [],
-
-        // Enhanced clinical context for Claude
         clinical_context: `Patient presents with chief complaint: ${patientData.subjective.chiefComplaint || 'Not specified'}. ` +
                          `Symptoms include: ${(patientData.subjective.symptoms || []).join(', ') || 'None reported'}. ` +
                          `Current medications: ${(patientData.subjective.medications || []).join(', ') || 'None'}. ` +
                          `Medical history: ${(patientData.subjective.pastMedicalHistory || []).join(', ') || 'None significant'}. ` +
                          `Family history: ${(patientData.subjective.familyHistory || []).join(', ') || 'None significant'}. ` +
-                         `Social history: ${(patientData.subjective.socialHistory || []).join(', ') || 'Not documented'}.`,
-
-        // Vitals
+                         `Social history: ${(patientData.subjective.socialHistory || []).join(', ') || 'Not documented'}. ` +
+                         `Procedures performed: ${(patientData.objective.procedures || []).join(', ') || 'None'}. ` +
+                         `Pathology findings: ${(patientData.objective.pathology || []).join(', ') || 'None'}.`,
         vitals: patientData.objective.vitals || {},
-
-        // History and medications
         medications: patientData.subjective.medications || [],
         allergies: patientData.subjective.allergyHistory || [],
         medical_history: patientData.subjective.pastMedicalHistory || [],
         surgical_history: patientData.subjective.pastSurgicalHistory || [],
         family_history: patientData.subjective.familyHistory || [],
         social_history: patientData.subjective.socialHistory || [],
-
-        // Diagnostic data
         laboratory: patientData.objective.laboratory || [],
         imaging: patientData.objective.imaging || [],
-        procedures: patientData.objective.procedures || [],
-        pathology: patientData.objective.pathology || [],
+        procedures: patientData.objective.procedures || [],  // PROCEDURES DATA
+        pathology: patientData.objective.pathology || [],    // PATHOLOGY DATA
         exam_findings: patientData.objective.examFindings || [],
-
-        // Complex analysis for advanced AI processing
         complex_analysis: processedData || {},
-
-        // Request specific analysis types from Claude
         analysis_requested: {
           differential_diagnoses: true,
           urgency_assessment: true,
@@ -2449,8 +2825,8 @@ const DiagnoVeraEnterpriseInterface = () => {
       };
 
       console.log('Sending to Claude AI:', payload);
-      console.log('Chief complaint:', payload.chief_complaint);
-      console.log('Symptoms count:', payload.symptoms.length);
+      console.log('Procedures data:', payload.procedures);
+      console.log('Pathology data:', payload.pathology);
 
       const response = await fetch(config.N8N_WEBHOOK_URL, {
         method: 'POST',
@@ -2564,28 +2940,18 @@ const DiagnoVeraEnterpriseInterface = () => {
   };
 
   const handleLogout = () => {
-    // Clear all session data
     resetForm();
     
-    // Clear any stored authentication tokens
     if (typeof window !== 'undefined') {
       localStorage.removeItem('dvera_auth_token');
       localStorage.removeItem('dvera_user_session');
       localStorage.removeItem('dvera_login_timestamp');
       sessionStorage.clear();
-      
-      // Clear any cached data
       dataCache.clear();
-      
-      // Disconnect WebSocket
       websocketService.disconnect();
-      
-      // Clear cookies related to authentication
       document.cookie = 'dvera_session=; expires=Thu, 01 Jan 1970 00:00:00 UTC; path=/;';
       document.cookie = 'dvera_auth=; expires=Thu, 01 Jan 1970 00:00:00 UTC; path=/;';
-      
-      // Force page reload and redirect to landing/login page
-      window.location.href = '/';  // Redirects to index.js
+      window.location.href = '/';
     }
   };
 
@@ -2600,7 +2966,6 @@ const DiagnoVeraEnterpriseInterface = () => {
 
     const dataStr = JSON.stringify(exportObj, null, 2);
     const dataUri = 'data:application/json;charset=utf-8,'+ encodeURIComponent(dataStr);
-
     const exportFileDefaultName = `diagnovera-patient-${patientData.demographics.mrn || 'unknown'}-${new Date().toISOString().split('T')[0]}.json`;
 
     const linkElement = document.createElement('a');
@@ -2625,7 +2990,7 @@ const DiagnoVeraEnterpriseInterface = () => {
     <ErrorBoundary>
       <div className="min-h-screen bg-gray-100 p-4">
         <div className="max-w-7xl mx-auto">
-          {/* Epic-Style Header */}
+          {/* Epic-Style Header with DVERA Branding */}
           <div className="bg-gradient-to-r from-blue-600 via-blue-700 to-blue-800 shadow-lg mb-4">
             <div className="px-6 py-4">
               <div className="flex justify-between items-center">
@@ -2659,7 +3024,7 @@ const DiagnoVeraEnterpriseInterface = () => {
                 
                 {/* Epic-style Right Panel */}
                 <div className="flex items-center space-x-4">
-                  {/* Connection Status with Epic styling */}
+                  {/* Connection Status */}
                   <div className="flex items-center bg-blue-500 rounded-lg px-3 py-1.5">
                     {claudeStatus === 'connected' ? (
                       <>
@@ -2682,7 +3047,7 @@ const DiagnoVeraEnterpriseInterface = () => {
                     )}
                   </div>
 
-                  {/* Epic-style Action Buttons */}
+                  {/* Action Buttons */}
                   <div className="flex space-x-2">
                     <button
                       onClick={resetForm}
@@ -2707,7 +3072,7 @@ const DiagnoVeraEnterpriseInterface = () => {
                     </button>
                   </div>
 
-                  {/* Epic-style User Info */}
+                  {/* User Info */}
                   <div className="hidden lg:flex items-center space-x-2 text-white">
                     <div className="w-8 h-8 bg-blue-400 rounded-full flex items-center justify-center">
                       <span className="text-xs font-semibold">MD</span>
@@ -2721,7 +3086,7 @@ const DiagnoVeraEnterpriseInterface = () => {
               </div>
             </div>
             
-            {/* Epic-style Sub-navigation Bar */}
+            {/* Sub-navigation Bar */}
             <div className="border-t border-blue-500 mt-4 pt-2">
               <div className="flex items-center justify-between text-xs">
                 <div className="flex space-x-4 text-blue-200">
@@ -2739,7 +3104,7 @@ const DiagnoVeraEnterpriseInterface = () => {
 
           {/* Main Content Grid */}
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
-            {/* Patient Data Entry */}
+            {/* Patient Data Entry Column */}
             <div className="lg:col-span-1 space-y-4">
               {/* Demographics */}
               <div className="bg-white shadow rounded-lg p-4">
@@ -2875,7 +3240,7 @@ const DiagnoVeraEnterpriseInterface = () => {
                 </ClientOnly>
               </div>
 
-              {/* Objective Data */}
+              {/* Objective Data with ALL DROPDOWNS */}
               <div className="bg-white shadow rounded-lg p-4">
                 <h2 className="text-lg font-bold mb-3">Objective Data</h2>
 
@@ -2955,6 +3320,7 @@ const DiagnoVeraEnterpriseInterface = () => {
                   />
                 </ClientOnly>
 
+                {/* PROCEDURES DROPDOWN - CRITICAL FOR YOUR REQUIREMENTS */}
                 <ClientOnly fallback={<div className="h-12 bg-gray-100 rounded animate-pulse mb-3"></div>}>
                   <EpicAutocompleteField
                     label="Procedures"
@@ -2967,6 +3333,7 @@ const DiagnoVeraEnterpriseInterface = () => {
                   />
                 </ClientOnly>
 
+                {/* PATHOLOGY DROPDOWN - CRITICAL FOR YOUR REQUIREMENTS */}
                 <ClientOnly fallback={<div className="h-12 bg-gray-100 rounded animate-pulse mb-3"></div>}>
                   <EpicAutocompleteField
                     label="Pathology"
@@ -3033,7 +3400,7 @@ const DiagnoVeraEnterpriseInterface = () => {
               )}
             </div>
 
-            {/* Visualizations */}
+            {/* Visualizations Column */}
             <div className="lg:col-span-2 space-y-4">
               {/* Complex Plane Visualization */}
               <div className="bg-white shadow rounded-lg p-4">
