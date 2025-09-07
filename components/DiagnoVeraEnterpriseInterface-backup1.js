@@ -5,6 +5,7 @@
 
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { useRouter } from 'next/router';
+import { useSession } from 'next-auth/react';
 import { ChevronDown, X, Loader2, Download, RotateCcw, BarChart3, GitBranch, Type, Send, Wifi, WifiOff, LogOut } from 'lucide-react';
 
 // ============================================================================
@@ -1852,12 +1853,9 @@ const ClaudeResultsDisplay = ({ results }) => {
 // ============================================================================
 
 const DiagnoVeraEnterpriseInterface = () => {
-  // Authentication with custom session (replaced NextAuth)
+  // Authentication with NextAuth
   const router = useRouter();
-  
-  // Custom authentication state (replaced useSession)
-  const [session, setSession] = useState(null);
-  const [status, setStatus] = useState('loading');
+  const { data: session, status } = useSession();
   
   // State Management
   const [hasMounted, setHasMounted] = useState(false);
@@ -1922,8 +1920,6 @@ const DiagnoVeraEnterpriseInterface = () => {
           const sessionData = JSON.parse(storedSession);
           if (sessionData.authorized) {
             setAuthorized(true);
-            setSession({ user: sessionData });
-            setStatus('authenticated');
             return;
           }
         } catch (e) {
@@ -1942,8 +1938,6 @@ const DiagnoVeraEnterpriseInterface = () => {
           const tokenData = JSON.parse(atob(authToken));
           if (tokenData.authorized) {
             setAuthorized(true);
-            setSession({ user: tokenData });
-            setStatus('authenticated');
             return;
           }
         } catch (e) {
@@ -1951,9 +1945,14 @@ const DiagnoVeraEnterpriseInterface = () => {
         }
       }
 
-      // No valid auth found
-      setStatus('unauthenticated');
-      if (!authorized) {
+      // Check NextAuth session
+      if (session?.user) {
+        setAuthorized(true);
+        return;
+      }
+
+      // If no valid auth found and not loading, redirect
+      if (status !== 'loading' && !session && !authorized) {
         if (process.env.NODE_ENV === 'development') {
           console.log('No authorization found, redirecting to login');
         }
@@ -1962,7 +1961,7 @@ const DiagnoVeraEnterpriseInterface = () => {
     };
 
     checkAuth();
-  }, [hasMounted, router, authorized]);
+  }, [hasMounted, session, status, router, authorized]);
 
   // Get user email
   const getUserEmail = () => {
