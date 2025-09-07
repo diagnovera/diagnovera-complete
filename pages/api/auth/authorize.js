@@ -1,7 +1,6 @@
+// frontend/pages/api/auth/authorize.js
 import jwt from 'jsonwebtoken';
-import { Redis } from '@upstash/redis';
-
-const redis = Redis.fromEnv();
+import { kv } from '@vercel/kv';
 
 export default async function handler(req, res) {
   console.log('Authorize API called with method:', req.method);
@@ -54,7 +53,7 @@ export default async function handler(req, res) {
       `);
     }
 
-    // Store authorization in Redis
+    // Store authorization in Vercel KV
     const authData = {
       email,
       name,
@@ -64,10 +63,11 @@ export default async function handler(req, res) {
       authorizedBy: 'ghajarmehrdad@gmail.com'
     };
 
-    console.log('Storing auth data in Redis:', authData);
+    console.log('Storing auth data in Vercel KV:', authData);
 
-    // Store with 24 hour expiration - make sure to stringify the object
-    await redis.set(`auth:${email}`, JSON.stringify(authData), { ex: 86400 });
+    // Store with 24 hour expiration
+    // Vercel KV automatically handles JSON serialization
+    await kv.set(`auth:${email}`, authData, { ex: 86400 });
     
     console.log('Auth data stored successfully for:', email);
 

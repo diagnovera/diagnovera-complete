@@ -1,8 +1,6 @@
 // pages/api/auth/status.js
 import jwt from 'jsonwebtoken';
-import { Redis } from '@upstash/redis';
-
-const redis = Redis.fromEnv();
+import { kv } from '@vercel/kv';
 
 export default async function handler(req, res) {
   if (req.method !== 'POST') {
@@ -18,8 +16,8 @@ export default async function handler(req, res) {
   try {
     console.log('Checking authorization status for:', email);
 
-    // Check Redis for authorization
-    const authDataRaw = await redis.get(`auth:${email}`);
+    // Check Vercel KV for authorization
+    const authDataRaw = await kv.get(`auth:${email}`);
     
     if (!authDataRaw) {
       console.log('No authorization found for:', email);
@@ -32,7 +30,7 @@ export default async function handler(req, res) {
     console.log('Raw auth data type:', typeof authDataRaw);
     console.log('Raw auth data:', authDataRaw);
 
-    // Handle both object and string responses from Redis
+    // Vercel KV automatically handles JSON parsing, but let's be safe
     let authData;
     if (typeof authDataRaw === 'string') {
       try {
@@ -45,7 +43,7 @@ export default async function handler(req, res) {
         });
       }
     } else if (typeof authDataRaw === 'object' && authDataRaw !== null) {
-      // Redis returned an object directly
+      // KV returned an object directly (this is the usual case)
       authData = authDataRaw;
     } else {
       console.error('Unexpected auth data type:', typeof authDataRaw, authDataRaw);
@@ -70,7 +68,7 @@ export default async function handler(req, res) {
     
     if (age > 86400000) { // 24 hours
       // Remove expired authorization
-      await redis.del(`auth:${email}`);
+      await kv.del(`auth:${email}`);
       return res.status(401).json({ 
         authorized: false, 
         message: 'Authorization expired. Please login again.' 
@@ -86,7 +84,7 @@ export default async function handler(req, res) {
         authorized: true,
         authorizedAt: authData.authorizedAt
       },
-      process.env.JWT_SECRET,
+      process.env.JWT_SECRET || process.env.NEXTAUTH_SECRET || 'development-secret-key',
       { expiresIn: '24h' }
     );
 
