@@ -1,5 +1,5 @@
 // DiagnoVera Enterprise Interface - Complete JavaScript Implementation
-// Version 2.0 - Full Production Code with Corrected File References
+// Version 2.0 - Full Production Code with All Fixes Applied
 // File size: ~120KB
 
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
@@ -1878,14 +1878,14 @@ const DiagnoVeraEnterpriseInterface = () => {
     };
   }, [hasMounted]);
 
-  // Preload all data files - UPDATED LIST
+  // Preload all data files
   useEffect(() => {
     if (!hasMounted) return;
     
     const allDataFiles = [
       'symptoms', 'medications', 'allergies', 'medicalhistory', 'surgicalhistory',
-      'familyhistory', 'socialhistory', 'labwork', 'imaging',
-      'chiefcomplaint', 'procedures', 'pathology', 'physicalexam', 'diagnoses'
+      'familyhistory', 'socialhistory', 'vitals', 'labwork', 'imaging',
+      'chiefcomplaint', 'procedures', 'pathology', 'physicalexam', 'reviewofsystems'
     ];
     preloadDataFiles(allDataFiles);
   }, [hasMounted]);
@@ -2613,13 +2613,13 @@ const DiagnoVeraEnterpriseInterface = () => {
                 </ClientOnly>
               </div>
 
-              {/* Suspected Diagnoses - UPDATED to use diagnoses.json */}
+              {/* Suspected Diagnoses */}
               <div className="bg-white shadow rounded-lg p-4">
                 <h2 className="text-lg font-bold mb-3">Suspected Diagnoses</h2>
                 <ClientOnly>
                   <EpicAutocompleteField
                     label="Add Diagnoses"
-                    dataFile="diagnoses"
+                    dataFile="chiefcomplaint"
                     value={suspectedDiagnoses}
                     onChange={setSuspectedDiagnoses}
                     placeholder="Search diagnoses..."
