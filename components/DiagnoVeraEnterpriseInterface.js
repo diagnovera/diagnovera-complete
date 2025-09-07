@@ -1,7 +1,7 @@
 // pages/diagnoveraenterpriseinterface.js
-// DiagnoVera Enterprise Interface - Complete JavaScript Implementation with Authentication
-// Version 2.1 - Full Production Code with Auth & All AI Features Preserved
-// File size: ~125KB
+// DiagnoVera Enterprise Interface - Vercel Deployment Optimized Complete Version
+// Version 2.2 - Full Production Code with All Components
+// Complete file with all lines
 
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { useRouter } from 'next/router';
@@ -9,20 +9,23 @@ import { useSession } from 'next-auth/react';
 import { ChevronDown, X, Loader2, Download, RotateCcw, BarChart3, GitBranch, Type, Send, Wifi, WifiOff, LogOut } from 'lucide-react';
 
 // ============================================================================
-// CONFIGURATION
+// CONFIGURATION - Environment Variables for Vercel
 // ============================================================================
 
 const config = {
-  BACKEND_URL: 'https://diagnovera-backend-924070815611.us-central1.run.app',
-  N8N_WEBHOOK_URL: 'https://n8n.srv934967.hstgr.cloud/webhook/medical-diagnosis'
+  BACKEND_URL: process.env.NEXT_PUBLIC_BACKEND_URL || 'https://diagnovera-backend-924070815611.us-central1.run.app',
+  N8N_WEBHOOK_URL: process.env.NEXT_PUBLIC_N8N_WEBHOOK_URL || 'https://n8n.srv934967.hstgr.cloud/webhook/medical-diagnosis'
 };
 
-console.log('DiagnoVera Enterprise Interface v2.1 Initialized');
-console.log('Backend URL:', config.BACKEND_URL);
-console.log('Webhook URL:', config.N8N_WEBHOOK_URL);
+// Only log in development
+if (process.env.NODE_ENV === 'development') {
+  console.log('DiagnoVera Enterprise Interface v2.2 Initialized');
+  console.log('Backend URL:', config.BACKEND_URL);
+  console.log('Webhook URL:', config.N8N_WEBHOOK_URL);
+}
 
 // ============================================================================
-// CLIENT-ONLY WRAPPER COMPONENT - ENHANCED FOR HYDRATION FIX
+// CLIENT-ONLY WRAPPER COMPONENT - ENHANCED FOR VERCEL
 // ============================================================================
 
 const ClientOnly = ({ children, fallback = null }) => {
@@ -43,7 +46,7 @@ const ClientOnly = ({ children, fallback = null }) => {
     );
   }
 
-  return children;
+  return <>{children}</>;
 };
 
 // ============================================================================
@@ -61,7 +64,9 @@ class ErrorBoundary extends React.Component {
   }
 
   componentDidCatch(error, errorInfo) {
-    console.error('DiagnoVera Error:', error, errorInfo);
+    if (process.env.NODE_ENV === 'development') {
+      console.error('DiagnoVera Error:', error, errorInfo);
+    }
     this.setState({
       error: error,
       errorInfo: errorInfo
@@ -78,12 +83,16 @@ class ErrorBoundary extends React.Component {
               The DiagnoVera interface encountered an error. Please refresh the page to continue.
             </p>
             <button
-              onClick={() => window.location.reload()}
+              onClick={() => {
+                if (typeof window !== 'undefined') {
+                  window.location.reload();
+                }
+              }}
               className="bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-700"
             >
               Refresh Page
             </button>
-            {this.state.error && (
+            {process.env.NODE_ENV === 'development' && this.state.error && (
               <details className="mt-4 text-xs text-gray-500">
                 <summary>Error Details</summary>
                 <pre className="mt-2 p-2 bg-gray-100 rounded overflow-auto">
@@ -101,7 +110,7 @@ class ErrorBoundary extends React.Component {
 }
 
 // ============================================================================
-// D3 MODULE HANDLER
+// SAFE D3 MODULE HANDLER FOR VERCEL
 // ============================================================================
 
 class D3Module {
@@ -109,16 +118,23 @@ class D3Module {
   static loadPromise = null;
 
   static async load() {
+    if (typeof window === 'undefined') {
+      return null; // Don't load D3 on server
+    }
+    
     if (this.instance) return this.instance;
     
     if (!this.loadPromise) {
       this.loadPromise = import('d3').then(module => {
         this.instance = module;
-        console.log('D3.js module loaded successfully');
+        if (process.env.NODE_ENV === 'development') {
+          console.log('D3.js module loaded successfully');
+        }
         return module;
       }).catch(error => {
         console.error('Failed to load D3.js:', error);
-        throw error;
+        // Return null instead of throwing to prevent build errors
+        return null;
       });
     }
     
@@ -127,7 +143,7 @@ class D3Module {
 }
 
 // ============================================================================
-// WEBSOCKET SERVICE
+// WEBSOCKET SERVICE - VERCEL SAFE
 // ============================================================================
 
 class WebSocketService {
@@ -141,22 +157,23 @@ class WebSocketService {
   }
 
   async connect() {
+    // Only connect in browser environment
+    if (typeof window === 'undefined') {
+      return;
+    }
+
     if (this.isConnecting || (this.socket && this.socket.connected)) {
       return;
     }
 
     this.isConnecting = true;
 
-    if (typeof window === 'undefined') {
-      console.warn('WebSocket can only be initialized in browser environment');
-      this.isConnecting = false;
-      return;
-    }
-
     try {
       const io = await import('socket.io-client');
       
-      console.log('Attempting to connect to WebSocket at:', config.BACKEND_URL);
+      if (process.env.NODE_ENV === 'development') {
+        console.log('Attempting to connect to WebSocket at:', config.BACKEND_URL);
+      }
 
       this.socket = io.default(config.BACKEND_URL, {
         transports: ['websocket', 'polling'],
@@ -167,19 +184,25 @@ class WebSocketService {
       });
 
       this.socket.on('connect', () => {
-        console.log('Connected to backend WebSocket');
+        if (process.env.NODE_ENV === 'development') {
+          console.log('Connected to backend WebSocket');
+        }
         this.connectionAttempts = 0;
         this.isConnecting = false;
         if (this.callbacks.onConnect) this.callbacks.onConnect();
       });
 
       this.socket.on('connect_error', (error) => {
-        console.warn('WebSocket connection error:', error.message);
+        if (process.env.NODE_ENV === 'development') {
+          console.warn('WebSocket connection error:', error.message);
+        }
         this.connectionAttempts++;
         this.isConnecting = false;
 
         if (this.connectionAttempts >= this.maxAttempts) {
-          console.error('Max connection attempts reached. Running in offline mode.');
+          if (process.env.NODE_ENV === 'development') {
+            console.error('Max connection attempts reached. Running in offline mode.');
+          }
           if (this.callbacks.onConnectionError) {
             this.callbacks.onConnectionError(error);
           }
@@ -192,14 +215,18 @@ class WebSocketService {
       });
 
       this.socket.on('claude_update', (data) => {
-        console.log('Received Claude AI update:', data);
+        if (process.env.NODE_ENV === 'development') {
+          console.log('Received Claude AI update:', data);
+        }
         if (this.callbacks.onClaudeUpdate) {
           this.callbacks.onClaudeUpdate(data);
         }
       });
 
       this.socket.on('disconnect', () => {
-        console.log('Disconnected from backend WebSocket');
+        if (process.env.NODE_ENV === 'development') {
+          console.log('Disconnected from backend WebSocket');
+        }
         this.isConnecting = false;
         if (this.callbacks.onDisconnect) this.callbacks.onDisconnect();
       });
@@ -261,16 +288,29 @@ class WebSocketService {
   }
 }
 
-const websocketService = new WebSocketService();
+// Create singleton instance only in browser
+let websocketService = null;
+if (typeof window !== 'undefined') {
+  websocketService = new WebSocketService();
+}
 
 // ============================================================================
-// DATA CACHE MANAGER
+// DATA CACHE MANAGER - BROWSER ONLY
 // ============================================================================
 
-const dataCache = new Map();
+const getDataCache = () => {
+  if (typeof window === 'undefined') {
+    return new Map();
+  }
+  
+  if (!window.__dataCache) {
+    window.__dataCache = new Map();
+  }
+  return window.__dataCache;
+};
 
 // ============================================================================
-// DATA LOADER HOOK - DIRECT JSON LOADING ONLY
+// DATA LOADER HOOK - VERCEL OPTIMIZED
 // ============================================================================
 
 const useDataLoader = (dataFile) => {
@@ -279,7 +319,9 @@ const useDataLoader = (dataFile) => {
   const [error, setError] = useState(null);
 
   useEffect(() => {
-    if (!dataFile) return;
+    if (!dataFile || typeof window === 'undefined') return;
+
+    const dataCache = getDataCache();
 
     // Check cache first
     if (dataCache.has(dataFile)) {
@@ -292,9 +334,11 @@ const useDataLoader = (dataFile) => {
       setError(null);
 
       try {
-        // Direct load from public/data folder only
         const primaryPath = `/data/${dataFile}.json`;
-        console.log(`Loading data from: ${primaryPath}`);
+        
+        if (process.env.NODE_ENV === 'development') {
+          console.log(`Loading data from: ${primaryPath}`);
+        }
         
         const response = await fetch(primaryPath);
         
@@ -307,12 +351,14 @@ const useDataLoader = (dataFile) => {
         
         dataCache.set(dataFile, items);
         setData(items);
-        console.log(`Successfully loaded ${items.length} items from ${dataFile}.json`);
+        
+        if (process.env.NODE_ENV === 'development') {
+          console.log(`Successfully loaded ${items.length} items from ${dataFile}.json`);
+        }
         
       } catch (err) {
         console.error(`Error loading ${dataFile}:`, err);
         setError(err.message);
-        // Return empty array - no fallback data
         setData([]);
         dataCache.set(dataFile, []);
       } finally {
@@ -327,13 +373,17 @@ const useDataLoader = (dataFile) => {
 };
 
 // ============================================================================
-// PRELOAD DATA FILES UTILITY
+// PRELOAD DATA FILES UTILITY - BROWSER ONLY
 // ============================================================================
 
 const preloadDataFiles = (files) => {
   if (typeof window === 'undefined') return;
   
-  console.log('Preloading data files:', files);
+  const dataCache = getDataCache();
+  
+  if (process.env.NODE_ENV === 'development') {
+    console.log('Preloading data files:', files);
+  }
   
   files.forEach(file => {
     if (!dataCache.has(file)) {
@@ -345,11 +395,13 @@ const preloadDataFiles = (files) => {
         .then(result => {
           const items = Array.isArray(result) ? result : (result.items || result.data || []);
           dataCache.set(file, items);
-          console.log(`Preloaded ${file}: ${items.length} items`);
+          if (process.env.NODE_ENV === 'development') {
+            console.log(`Preloaded ${file}: ${items.length} items`);
+          }
         })
         .catch(err => {
           console.error(`Failed to preload ${file}:`, err);
-          dataCache.set(file, []); // Cache empty array
+          dataCache.set(file, []);
         });
     }
   });
@@ -397,8 +449,11 @@ const EpicAutocompleteField = ({
         setIsOpen(false);
       }
     };
-    document.addEventListener("mousedown", handleClickOutside);
-    return () => document.removeEventListener("mousedown", handleClickOutside);
+    
+    if (typeof window !== 'undefined') {
+      document.addEventListener("mousedown", handleClickOutside);
+      return () => document.removeEventListener("mousedown", handleClickOutside);
+    }
   }, []);
 
   const handleSelect = useCallback((option) => {
@@ -905,7 +960,7 @@ const EpicLabField = ({
 };
 
 // ============================================================================
-// [PRESERVED] COMPLEX PLANE VISUALIZATION COMPONENT - NO CHANGES
+// COMPLEX PLANE VISUALIZATION COMPONENT - VERCEL SAFE
 // ============================================================================
 
 const ComplexPlaneChart = React.memo(({ data, showConnections, showLabels, selectedDomains }) => {
@@ -921,7 +976,7 @@ const ComplexPlaneChart = React.memo(({ data, showConnections, showLabels, selec
   }, []);
 
   useEffect(() => {
-    if (!svgRef.current || !data || !d3Module) return;
+    if (!svgRef.current || !data || !d3Module || typeof window === 'undefined') return;
 
     const svg = d3Module.select(svgRef.current);
     svg.selectAll("*").remove();
@@ -1018,7 +1073,7 @@ const ComplexPlaneChart = React.memo(({ data, showConnections, showLabels, selec
 
     if (allPoints.length === 0) return;
 
-    // FIX: Improved smooth curve that stays within bounds
+    // Draw connections if enabled
     if (showConnections && allPoints.length > 2) {
       // Sort points by angle for smooth curve
       const sortedPoints = [...allPoints].sort((a, b) => a.angle - b.angle);
@@ -1113,7 +1168,7 @@ const ComplexPlaneChart = React.memo(({ data, showConnections, showLabels, selec
 });
 
 // ============================================================================
-// [PRESERVED] KURAMOTO ANALYSIS COMPONENT - AI DATA ONLY - NO CHANGES
+// KURAMOTO ANALYSIS COMPONENT - AI DATA ONLY - VERCEL SAFE
 // ============================================================================
 
 const KuramotoAnalysis = ({ data, aiResults }) => {
@@ -1189,7 +1244,7 @@ const KuramotoAnalysis = ({ data, aiResults }) => {
   }, [data, hasData, aiResults]);
 
   useEffect(() => {
-    if (!svgRef.current || oscillators.length === 0 || !d3Module) return;
+    if (!svgRef.current || oscillators.length === 0 || !d3Module || typeof window === 'undefined') return;
 
     const svg = d3Module.select(svgRef.current);
     svg.selectAll("*").remove();
@@ -1452,7 +1507,7 @@ const KuramotoAnalysis = ({ data, aiResults }) => {
 };
 
 // ============================================================================
-// [PRESERVED] BAYESIAN ANALYSIS COMPONENT - AI DATA ONLY - NO CHANGES
+// BAYESIAN ANALYSIS COMPONENT - AI DATA ONLY - VERCEL SAFE
 // ============================================================================
 
 const BayesianAnalysis = ({ patientData, processedData, suspectedDiagnoses = [], aiResults }) => {
@@ -1505,12 +1560,12 @@ const BayesianAnalysis = ({ patientData, processedData, suspectedDiagnoses = [],
   }, [aiResults, hasData]);
 
   useEffect(() => {
-    if (!svgRef.current || posteriorProbabilities.length === 0 || !hasData || !d3Module) return;
+    if (!svgRef.current || posteriorProbabilities.length === 0 || !hasData || !d3Module || typeof window === 'undefined') return;
 
     const svg = d3Module.select(svgRef.current);
     svg.selectAll("*").remove();
 
-    // FIX: Properly adjusted margins to prevent overflow
+    // Properly adjusted margins to prevent overflow
     const margin = { top: 40, right: 80, bottom: 120, left: 60 };
     const width = 400 - margin.left - margin.right;
     const height = 350 - margin.top - margin.bottom;
@@ -1633,7 +1688,7 @@ const BayesianAnalysis = ({ patientData, processedData, suspectedDiagnoses = [],
 };
 
 // ============================================================================
-// [PRESERVED] CLAUDE AI RESULTS DISPLAY COMPONENT - NO CHANGES
+// CLAUDE AI RESULTS DISPLAY COMPONENT - VERCEL SAFE
 // ============================================================================
 
 const ClaudeResultsDisplay = ({ results }) => {
@@ -1792,7 +1847,7 @@ const ClaudeResultsDisplay = ({ results }) => {
 };
 
 // ============================================================================
-// MAIN DIAGNOVERA ENTERPRISE INTERFACE COMPONENT - WITH AUTH
+// MAIN DIAGNOVERA ENTERPRISE INTERFACE COMPONENT - WITH ALL HYDRATION FIXES
 // ============================================================================
 
 const DiagnoVeraEnterpriseInterface = () => {
@@ -1842,14 +1897,19 @@ const DiagnoVeraEnterpriseInterface = () => {
   const [isProcessing, setIsProcessing] = useState(false);
   const [error, setError] = useState(null);
 
-  // Hydration protection
+  // Hydration protection - FIRST EFFECT
   useEffect(() => {
     setHasMounted(true);
-    console.log('DiagnoVera Interface mounted');
+    if (process.env.NODE_ENV === 'development') {
+      console.log('DiagnoVera Interface mounted');
+    }
   }, []);
 
-  // Authentication check - ENHANCED
+  // Authentication check - WAITS FOR MOUNTING
   useEffect(() => {
+    if (!hasMounted) return; // Wait for mount
+    if (typeof window === 'undefined') return;
+    
     const checkAuth = async () => {
       // Check session storage
       const storedSession = localStorage.getItem('diagnovera_session');
@@ -1891,19 +1951,21 @@ const DiagnoVeraEnterpriseInterface = () => {
 
       // If no valid auth found and not loading, redirect
       if (status !== 'loading' && !session && !authorized) {
-        console.log('No authorization found, redirecting to login');
+        if (process.env.NODE_ENV === 'development') {
+          console.log('No authorization found, redirecting to login');
+        }
         router.push('/');
       }
     };
 
-    if (hasMounted) {
-      checkAuth();
-    }
-  }, [session, status, router, authorized, hasMounted]);
+    checkAuth();
+  }, [hasMounted, session, status, router, authorized]);
 
-  // Get user email - ENHANCED
+  // Get user email
   const getUserEmail = () => {
     if (session?.user?.email) return session.user.email;
+    
+    if (typeof window === 'undefined') return null;
     
     try {
       const storedSession = localStorage.getItem('diagnovera_session');
@@ -1922,7 +1984,7 @@ const DiagnoVeraEnterpriseInterface = () => {
 
   // Connect to WebSocket on mount
   useEffect(() => {
-    if (!hasMounted) return;
+    if (!hasMounted || !websocketService) return;
     
     const connectTimer = setTimeout(() => {
       try {
@@ -1930,11 +1992,15 @@ const DiagnoVeraEnterpriseInterface = () => {
 
         websocketService.onConnect(() => {
           setClaudeStatus('connected');
-          console.log('Claude AI connected');
+          if (process.env.NODE_ENV === 'development') {
+            console.log('Claude AI connected');
+          }
         });
 
         websocketService.onClaudeUpdate((data) => {
-          console.log('Received Claude AI update:', data);
+          if (process.env.NODE_ENV === 'development') {
+            console.log('Received Claude AI update:', data);
+          }
           setClaudeResults(data);
           setClaudeStatus('connected');
 
@@ -1946,7 +2012,9 @@ const DiagnoVeraEnterpriseInterface = () => {
         });
 
         websocketService.onConnectionError((error) => {
-          console.warn('WebSocket connection failed, continuing in offline mode');
+          if (process.env.NODE_ENV === 'development') {
+            console.warn('WebSocket connection failed, continuing in offline mode');
+          }
           setClaudeStatus('offline');
         });
 
@@ -1961,11 +2029,13 @@ const DiagnoVeraEnterpriseInterface = () => {
 
     return () => {
       clearTimeout(connectTimer);
-      websocketService.disconnect();
+      if (websocketService) {
+        websocketService.disconnect();
+      }
     };
   }, [hasMounted]);
 
-  // Preload all data files - UPDATED LIST
+  // Preload all data files
   useEffect(() => {
     if (!hasMounted) return;
     
@@ -2162,14 +2232,13 @@ const DiagnoVeraEnterpriseInterface = () => {
     }
   }, [patientData, processDataToComplexPlane, hasMounted]);
 
-  // Submit to Claude AI with comprehensive data
+  // Submit to Claude AI
   const submitToClaudeAI = async () => {
     setIsProcessing(true);
     setError(null);
     setClaudeStatus('processing');
 
     try {
-      // Build comprehensive clinical context
       const clinicalContext = `
         COMPREHENSIVE PATIENT ASSESSMENT:
         
@@ -2258,7 +2327,9 @@ const DiagnoVeraEnterpriseInterface = () => {
         }
       };
 
-      console.log('Sending comprehensive data to Claude AI:', payload);
+      if (process.env.NODE_ENV === 'development') {
+        console.log('Sending comprehensive data to Claude AI:', payload);
+      }
 
       const response = await fetch(config.N8N_WEBHOOK_URL, {
         method: 'POST',
@@ -2273,7 +2344,10 @@ const DiagnoVeraEnterpriseInterface = () => {
       }
 
       const result = await response.json();
-      console.log('Claude AI response:', result);
+      
+      if (process.env.NODE_ENV === 'development') {
+        console.log('Claude AI response:', result);
+      }
 
       // Process results
       const processedResults = {
@@ -2348,19 +2422,19 @@ const DiagnoVeraEnterpriseInterface = () => {
     setError(null);
   };
 
-  // Enhanced logout with auth cleanup
   const handleLogout = () => {
     resetForm();
-    websocketService.disconnect();
-    dataCache.clear();
-    
-    // Clear all auth data
-    localStorage.removeItem('diagnovera_session');
-    document.cookie = 'authToken=; path=/; expires=Thu, 01 Jan 1970 00:00:00 GMT';
-    
-    if (typeof window !== 'undefined') {
-      router.push('/');
+    if (websocketService) {
+      websocketService.disconnect();
     }
+    if (typeof window !== 'undefined') {
+      const dataCache = getDataCache();
+      dataCache.clear();
+      localStorage.removeItem('diagnovera_session');
+      document.cookie = 'authToken=; path=/; expires=Thu, 01 Jan 1970 00:00:00 GMT';
+    }
+    
+    router.push('/');
   };
 
   const exportData = () => {
@@ -2382,19 +2456,7 @@ const DiagnoVeraEnterpriseInterface = () => {
     linkElement.click();
   };
 
-  // Loading state for auth check
-  if (status === 'loading' || (!authorized && !session && hasMounted)) {
-    return (
-      <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100 flex items-center justify-center">
-        <div className="text-center">
-          <Loader2 className="h-8 w-8 animate-spin mx-auto mb-4 text-blue-600" />
-          <p className="text-gray-600">Verifying authorization...</p>
-        </div>
-      </div>
-    );
-  }
-
-  // Prevent rendering until mounted
+  // CRITICAL: Check if not mounted FIRST
   if (!hasMounted) {
     return (
       <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100 flex items-center justify-center">
@@ -2406,12 +2468,24 @@ const DiagnoVeraEnterpriseInterface = () => {
     );
   }
 
+  // Loading state for auth check
+  if (status === 'loading' || (!authorized && !session)) {
+    return (
+      <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100 flex items-center justify-center">
+        <div className="text-center">
+          <Loader2 className="h-8 w-8 animate-spin mx-auto mb-4 text-blue-600" />
+          <p className="text-gray-600">Verifying authorization...</p>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <ClientOnly>
       <ErrorBoundary>
         <div className="min-h-screen bg-gray-100 p-4">
           <div className="max-w-7xl mx-auto">
-            {/* Header - ENHANCED with user email */}
+            {/* Header */}
             <div className="bg-gradient-to-r from-blue-600 via-blue-700 to-blue-800 shadow-lg mb-4 rounded-lg">
               <div className="px-6 py-4">
                 <div className="flex justify-between items-center">
@@ -2482,7 +2556,7 @@ const DiagnoVeraEnterpriseInterface = () => {
               </div>
             </div>
 
-            {/* Main Content Grid - ALL PRESERVED */}
+            {/* Main Content Grid */}
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
               {/* Patient Data Entry Column */}
               <div className="lg:col-span-1 space-y-4">
@@ -2523,101 +2597,85 @@ const DiagnoVeraEnterpriseInterface = () => {
                 <div className="bg-white shadow rounded-lg p-4">
                   <h2 className="text-lg font-bold mb-3">Subjective Data</h2>
                   
-                  <ClientOnly>
-                    <EpicAutocompleteField
-                      label="Chief Complaint"
-                      dataFile="chiefcomplaint"
-                      value={patientData.subjective.chiefComplaint}
-                      onChange={(value) => updateSubjective('chiefComplaint', value)}
-                      placeholder="Select chief complaint..."
-                      multiple={false}
-                      color="#e74c3c"
-                    />
-                  </ClientOnly>
+                  <EpicAutocompleteField
+                    label="Chief Complaint"
+                    dataFile="chiefcomplaint"
+                    value={patientData.subjective.chiefComplaint}
+                    onChange={(value) => updateSubjective('chiefComplaint', value)}
+                    placeholder="Select chief complaint..."
+                    multiple={false}
+                    color="#e74c3c"
+                  />
 
-                  <ClientOnly>
-                    <EpicAutocompleteField
-                      label="Symptoms"
-                      dataFile="symptoms"
-                      value={patientData.subjective.symptoms}
-                      onChange={(value) => updateSubjective('symptoms', value)}
-                      placeholder="Search symptoms..."
-                      multiple={true}
-                      color="#e74c3c"
-                    />
-                  </ClientOnly>
+                  <EpicAutocompleteField
+                    label="Symptoms"
+                    dataFile="symptoms"
+                    value={patientData.subjective.symptoms}
+                    onChange={(value) => updateSubjective('symptoms', value)}
+                    placeholder="Search symptoms..."
+                    multiple={true}
+                    color="#e74c3c"
+                  />
 
-                  <ClientOnly>
-                    <EpicAutocompleteField
-                      label="Current Medications"
-                      dataFile="medications"
-                      value={patientData.subjective.medications}
-                      onChange={(value) => updateSubjective('medications', value)}
-                      placeholder="Search medications..."
-                      multiple={true}
-                      color="#f39c12"
-                    />
-                  </ClientOnly>
+                  <EpicAutocompleteField
+                    label="Current Medications"
+                    dataFile="medications"
+                    value={patientData.subjective.medications}
+                    onChange={(value) => updateSubjective('medications', value)}
+                    placeholder="Search medications..."
+                    multiple={true}
+                    color="#f39c12"
+                  />
 
-                  <ClientOnly>
-                    <EpicAutocompleteField
-                      label="Allergies"
-                      dataFile="allergies"
-                      value={patientData.subjective.allergyHistory}
-                      onChange={(value) => updateSubjective('allergyHistory', value)}
-                      placeholder="Search allergies..."
-                      multiple={true}
-                      color="#e74c3c"
-                    />
-                  </ClientOnly>
+                  <EpicAutocompleteField
+                    label="Allergies"
+                    dataFile="allergies"
+                    value={patientData.subjective.allergyHistory}
+                    onChange={(value) => updateSubjective('allergyHistory', value)}
+                    placeholder="Search allergies..."
+                    multiple={true}
+                    color="#e74c3c"
+                  />
 
-                  <ClientOnly>
-                    <EpicAutocompleteField
-                      label="Past Medical History"
-                      dataFile="medicalhistory"
-                      value={patientData.subjective.pastMedicalHistory}
-                      onChange={(value) => updateSubjective('pastMedicalHistory', value)}
-                      placeholder="Search conditions..."
-                      multiple={true}
-                      color="#9b59b6"
-                    />
-                  </ClientOnly>
+                  <EpicAutocompleteField
+                    label="Past Medical History"
+                    dataFile="medicalhistory"
+                    value={patientData.subjective.pastMedicalHistory}
+                    onChange={(value) => updateSubjective('pastMedicalHistory', value)}
+                    placeholder="Search conditions..."
+                    multiple={true}
+                    color="#9b59b6"
+                  />
 
-                  <ClientOnly>
-                    <EpicAutocompleteField
-                      label="Past Surgical History"
-                      dataFile="surgicalhistory"
-                      value={patientData.subjective.pastSurgicalHistory}
-                      onChange={(value) => updateSubjective('pastSurgicalHistory', value)}
-                      placeholder="Search procedures..."
-                      multiple={true}
-                      color="#34495e"
-                    />
-                  </ClientOnly>
+                  <EpicAutocompleteField
+                    label="Past Surgical History"
+                    dataFile="surgicalhistory"
+                    value={patientData.subjective.pastSurgicalHistory}
+                    onChange={(value) => updateSubjective('pastSurgicalHistory', value)}
+                    placeholder="Search procedures..."
+                    multiple={true}
+                    color="#34495e"
+                  />
 
-                  <ClientOnly>
-                    <EpicAutocompleteField
-                      label="Family History"
-                      dataFile="familyhistory"
-                      value={patientData.subjective.familyHistory}
-                      onChange={(value) => updateSubjective('familyHistory', value)}
-                      placeholder="Search family history..."
-                      multiple={true}
-                      color="#16a085"
-                    />
-                  </ClientOnly>
+                  <EpicAutocompleteField
+                    label="Family History"
+                    dataFile="familyhistory"
+                    value={patientData.subjective.familyHistory}
+                    onChange={(value) => updateSubjective('familyHistory', value)}
+                    placeholder="Search family history..."
+                    multiple={true}
+                    color="#16a085"
+                  />
 
-                  <ClientOnly>
-                    <EpicAutocompleteField
-                      label="Social History"
-                      dataFile="socialhistory"
-                      value={patientData.subjective.socialHistory}
-                      onChange={(value) => updateSubjective('socialHistory', value)}
-                      placeholder="Search social history..."
-                      multiple={true}
-                      color="#8e44ad"
-                    />
-                  </ClientOnly>
+                  <EpicAutocompleteField
+                    label="Social History"
+                    dataFile="socialhistory"
+                    value={patientData.subjective.socialHistory}
+                    onChange={(value) => updateSubjective('socialHistory', value)}
+                    placeholder="Search social history..."
+                    multiple={true}
+                    color="#8e44ad"
+                  />
                 </div>
 
                 {/* Objective Data */}
@@ -2666,79 +2724,67 @@ const DiagnoVeraEnterpriseInterface = () => {
                     </div>
                   </div>
 
-                  <ClientOnly>
-                    <EpicAutocompleteField
-                      label="Exam Findings"
-                      dataFile="physicalexam"
-                      value={patientData.objective.examFindings}
-                      onChange={updateExamFindings}
-                      placeholder="Search exam findings..."
-                      multiple={true}
-                      color="#e67e22"
-                    />
-                  </ClientOnly>
+                  <EpicAutocompleteField
+                    label="Exam Findings"
+                    dataFile="physicalexam"
+                    value={patientData.objective.examFindings}
+                    onChange={updateExamFindings}
+                    placeholder="Search exam findings..."
+                    multiple={true}
+                    color="#e67e22"
+                  />
 
-                  <ClientOnly>
-                    <EpicLabField
-                      label="Laboratory Tests"
-                      dataFile="labwork"
-                      value={patientData.objective.laboratory}
-                      onChange={updateLaboratory}
-                      placeholder="Search lab tests..."
-                      color="#70AD47"
-                    />
-                  </ClientOnly>
+                  <EpicLabField
+                    label="Laboratory Tests"
+                    dataFile="labwork"
+                    value={patientData.objective.laboratory}
+                    onChange={updateLaboratory}
+                    placeholder="Search lab tests..."
+                    color="#70AD47"
+                  />
 
-                  <ClientOnly>
-                    <EpicImagingField
-                      label="Imaging Studies"
-                      dataFile="imaging"
-                      value={patientData.objective.imaging}
-                      onChange={updateImaging}
-                      placeholder="Search imaging..."
-                      color="#FECA57"
-                    />
-                  </ClientOnly>
+                  <EpicImagingField
+                    label="Imaging Studies"
+                    dataFile="imaging"
+                    value={patientData.objective.imaging}
+                    onChange={updateImaging}
+                    placeholder="Search imaging..."
+                    color="#FECA57"
+                  />
 
-                  <ClientOnly>
-                    <EpicAutocompleteField
-                      label="Procedures"
-                      dataFile="procedures"
-                      value={patientData.objective.procedures}
-                      onChange={updateProcedures}
-                      placeholder="Search procedures..."
-                      multiple={true}
-                      color="#9b59b6"
-                    />
-                  </ClientOnly>
+                  <EpicAutocompleteField
+                    label="Procedures"
+                    dataFile="procedures"
+                    value={patientData.objective.procedures}
+                    onChange={updateProcedures}
+                    placeholder="Search procedures..."
+                    multiple={true}
+                    color="#9b59b6"
+                  />
 
-                  <ClientOnly>
-                    <EpicAutocompleteField
-                      label="Pathology"
-                      dataFile="pathology"
-                      value={patientData.objective.pathology}
-                      onChange={updatePathology}
-                      placeholder="Search pathology..."
-                      multiple={true}
-                      color="#34495e"
-                    />
-                  </ClientOnly>
+                  <EpicAutocompleteField
+                    label="Pathology"
+                    dataFile="pathology"
+                    value={patientData.objective.pathology}
+                    onChange={updatePathology}
+                    placeholder="Search pathology..."
+                    multiple={true}
+                    color="#34495e"
+                  />
                 </div>
 
-                {/* Suspected Diagnoses - UPDATED to use diagnoses.json */}
+                {/* Suspected Diagnoses */}
                 <div className="bg-white shadow rounded-lg p-4">
                   <h2 className="text-lg font-bold mb-3">Suspected Diagnoses</h2>
-                  <ClientOnly>
-                    <EpicAutocompleteField
-                      label="Add Diagnoses"
-                      dataFile="diagnoses"
-                      value={suspectedDiagnoses}
-                      onChange={setSuspectedDiagnoses}
-                      placeholder="Search diagnoses..."
-                      multiple={true}
-                      color="#9b59b6"
-                    />
-                  </ClientOnly>
+                  <EpicAutocompleteField
+                    label="Add Diagnoses"
+                    dataFile="diagnoses"
+                    value={suspectedDiagnoses}
+                    onChange={setSuspectedDiagnoses}
+                    placeholder="Search diagnoses..."
+                    multiple={true}
+                    color="#9b59b6"
+                  />
                 </div>
 
                 {/* Submit Button */}
@@ -2771,7 +2817,7 @@ const DiagnoVeraEnterpriseInterface = () => {
                 )}
               </div>
 
-              {/* Visualizations Column - ALL PRESERVED */}
+              {/* Visualizations Column */}
               <div className="lg:col-span-2 space-y-4">
                 {/* Complex Plane Visualization */}
                 <div className="bg-white shadow rounded-lg p-4">
@@ -2813,39 +2859,28 @@ const DiagnoVeraEnterpriseInterface = () => {
                       </select>
                     </div>
                   </div>
-                  <ClientOnly>
-                    <ComplexPlaneChart
-                      data={processedData}
-                      showConnections={showConnections}
-                      showLabels={showLabels}
-                      selectedDomains={selectedDomains}
-                    />
-                  </ClientOnly>
+                  <ComplexPlaneChart
+                    data={processedData}
+                    showConnections={showConnections}
+                    showLabels={showLabels}
+                    selectedDomains={selectedDomains}
+                  />
                 </div>
 
                 {/* Analysis Grid */}
                 <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-                  {/* Kuramoto Analysis */}
-                  <ClientOnly>
-                    <KuramotoAnalysis data={processedData} aiResults={claudeResults} />
-                  </ClientOnly>
-
-                  {/* Bayesian Analysis */}
-                  <ClientOnly>
-                    <BayesianAnalysis
-                      patientData={patientData}
-                      processedData={processedData}
-                      suspectedDiagnoses={suspectedDiagnoses}
-                      aiResults={claudeResults}
-                    />
-                  </ClientOnly>
+                  <KuramotoAnalysis data={processedData} aiResults={claudeResults} />
+                  <BayesianAnalysis
+                    patientData={patientData}
+                    processedData={processedData}
+                    suspectedDiagnoses={suspectedDiagnoses}
+                    aiResults={claudeResults}
+                  />
                 </div>
 
                 {/* Claude AI Results */}
                 {claudeResults && (
-                  <ClientOnly>
-                    <ClaudeResultsDisplay results={claudeResults} />
-                  </ClientOnly>
+                  <ClaudeResultsDisplay results={claudeResults} />
                 )}
               </div>
             </div>
