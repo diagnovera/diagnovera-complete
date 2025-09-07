@@ -1,70 +1,18 @@
 // pages/index.js
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useRouter } from 'next/router';
 import { Loader2 } from 'lucide-react';
 
 export default function HomePage() {
   const router = useRouter();
-  const { status, email, token } = router.query;
   const [isLoading, setIsLoading] = useState(false);
   const [authStatus, setAuthStatus] = useState('');
-  const [isApproved, setIsApproved] = useState(false);
+  const [awaitingAuth, setAwaitingAuth] = useState(false);
+  const [authEmail, setAuthEmail] = useState('');
+  const pollIntervalRef = useRef(null);
 
-  // Handle pending approval status
+  // Check for existing session on mount
   useEffect(() => {
-    if (status === 'pending' && email && token) {
-      setAuthStatus('Your login request is pending admin approval...');
-      
-      // Check for approval periodically
-      const checkApproval = async () => {
-        try {
-          const response = await fetch('/api/auth/check-approval', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ email, token })
-          });
-
-          const data = await response.json();
-          
-          if (data.approved) {
-            // Store authorization
-            localStorage.setItem('diagnovera_session', JSON.stringify({
-              authorized: true,
-              email: email,
-              token: token,
-              timestamp: new Date().toISOString()
-            }));
-            
-            // Set auth cookie
-            document.cookie = `authToken=${btoa(JSON.stringify({ 
-              authorized: true, 
-              email: email 
-            }))}; path=/`;
-            
-            setIsApproved(true);
-            setAuthStatus('Approved! Redirecting to application...');
-            
-            // Redirect to main app after a short delay
-            setTimeout(() => {
-              router.push('/diagnoveraenterpriseinterface');
-            }, 1500);
-          }
-        } catch (error) {
-          console.error('Error checking approval:', error);
-        }
-      };
-
-      // Check immediately
-      checkApproval();
-      
-      // Then check every 5 seconds if not approved
-      if (!isApproved) {
-        const interval = setInterval(checkApproval, 5000);
-        return () => clearInterval(interval);
-      }
-    }
-
-    // Check if already authorized
     const storedSession = localStorage.getItem('diagnovera_session');
     if (storedSession) {
       try {
@@ -74,18 +22,112 @@ export default function HomePage() {
         }
       } catch (e) {
         console.error('Error checking stored session:', e);
+        localStorage.removeItem('diagnovera_session');
       }
     }
-  }, [status, email, token, router, isApproved]);
 
+    // Cleanup on unmount
+    return () => {
+      if (pollIntervalRef.current) {
+        clearInterval(pollIntervalRef.current);
+      }
+    };
+  }, [router]);
+
+  // Handle Google Login - Direct POST to your API
   const handleGoogleLogin = async () => {
     setIsLoading(true);
     setAuthStatus('Redirecting to Google...');
     
-    // Your existing Google OAuth logic here
-    // This should redirect to your OAuth endpoint
-    window.location.href = '/api/auth/google';
+    try {
+      // Create a Google OAuth URL and redirect
+      const googleAuthUrl = `https://accounts.google.com/o/oauth2/v2/auth?` +
+        `client_id=${process.env.NEXT_PUBLIC_GOOGLE_CLIENT_ID}` +
+        `&redirect_uri=${encodeURIComponent(window.location.origin + '/api/auth/google-callback')}` +
+        `&response_type=code` +
+        `&scope=openid email profile` +
+        `&access_type=offline` +
+        `&prompt=consent`;
+      
+      // Redirect to Google OAuth
+      window.location.href = googleAuthUrl;
+    } catch (error) {
+      console.error('Login error:', error);
+      setAuthStatus('Failed to initiate login');
+      setIsLoading(false);
+    }
   };
+
+  // Poll for authorization status
+  const pollForAuthorization = (email) => {
+    if (pollIntervalRef.current) {
+      clearInterval(pollIntervalRef.current);
+    }
+
+    let attempts = 0;
+    const maxAttempts = 120; // 10 minutes
+
+    pollIntervalRef.current = setInterval(async () => {
+      attempts++;
+      
+      try {
+        const response = await fetch('/api/auth/status', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ email })
+        });
+
+        const data = await response.json();
+        
+        if (data.authorized) {
+          clearInterval(pollIntervalRef.current);
+          
+          // Store session
+          localStorage.setItem('diagnovera_session', JSON.stringify({
+            authorized: true,
+            email: data.user.email,
+            name: data.user.name,
+            image: data.user.image,
+            timestamp: new Date().toISOString()
+          }));
+          
+          // Set auth cookie
+          document.cookie = `authToken=${data.sessionToken}; path=/; max-age=86400`;
+          
+          setAuthStatus('Approved! Redirecting...');
+          
+          setTimeout(() => {
+            router.push('/diagnoveraenterpriseinterface');
+          }, 1500);
+        }
+      } catch (error) {
+        console.error('Poll error:', error);
+      }
+
+      if (attempts >= maxAttempts) {
+        clearInterval(pollIntervalRef.current);
+        setAwaitingAuth(false);
+        setAuthStatus('Authorization timeout. Please try again.');
+      }
+    }, 5000);
+  };
+
+  // Handle callback from Google (if redirected back with pending status)
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const status = params.get('status');
+    const email = params.get('email');
+
+    if (status === 'pending' && email) {
+      setAwaitingAuth(true);
+      setAuthEmail(email);
+      setAuthStatus('Authorization request sent. Waiting for admin approval...');
+      pollForAuthorization(email);
+      
+      // Clean URL
+      window.history.replaceState({}, document.title, '/');
+    }
+  }, []);
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100 flex items-center justify-center p-4">
@@ -99,11 +141,11 @@ export default function HomePage() {
         </div>
 
         <div className="space-y-4">
-          {status === 'pending' ? (
+          {awaitingAuth ? (
             <div className="text-center">
               <Loader2 className="h-8 w-8 animate-spin mx-auto mb-4 text-blue-600" />
               <p className="text-gray-600 mb-2">Signed in as:</p>
-              <p className="font-medium text-gray-800 mb-4">{email}</p>
+              <p className="font-medium text-gray-800 mb-4">{authEmail}</p>
               <div className="p-3 bg-yellow-50 border border-yellow-200 rounded-lg">
                 <p className="text-sm text-yellow-800">
                   Awaiting admin approval...
@@ -112,6 +154,19 @@ export default function HomePage() {
                   You'll be automatically redirected once approved.
                 </p>
               </div>
+              <button
+                onClick={() => {
+                  if (pollIntervalRef.current) {
+                    clearInterval(pollIntervalRef.current);
+                  }
+                  setAwaitingAuth(false);
+                  setAuthEmail('');
+                  setAuthStatus('');
+                }}
+                className="mt-4 px-4 py-2 bg-gray-500 text-white rounded hover:bg-gray-600 text-sm"
+              >
+                Cancel
+              </button>
             </div>
           ) : (
             <>
@@ -141,7 +196,7 @@ export default function HomePage() {
             </>
           )}
 
-          {authStatus && (
+          {authStatus && !awaitingAuth && (
             <div className="mt-4 p-3 bg-blue-50 rounded-lg">
               <p className="text-sm text-blue-800 text-center">{authStatus}</p>
             </div>
