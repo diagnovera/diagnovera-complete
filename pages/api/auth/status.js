@@ -75,8 +75,8 @@ export default async function handler(req, res) {
       });
     }
 
-    // Create/refresh session token
-    const sessionToken = jwt.sign(
+    // Create JWT for secure validation
+    const jwtToken = jwt.sign(
       {
         email: authData.email,
         name: authData.name,
@@ -88,6 +88,17 @@ export default async function handler(req, res) {
       { expiresIn: '24h' }
     );
 
+    // IMPORTANT: Also create a base64 token for the middleware and client
+    // This is what the middleware expects and can quickly decode
+    const sessionToken = Buffer.from(JSON.stringify({
+      email: authData.email,
+      name: authData.name,
+      image: authData.image,
+      authorized: true,
+      authorizedAt: authData.authorizedAt,
+      timestamp: authData.authorizedAt
+    })).toString('base64');
+
     console.log('Authorization confirmed for:', email);
 
     res.status(200).json({
@@ -97,7 +108,8 @@ export default async function handler(req, res) {
         name: authData.name,
         image: authData.image
       },
-      sessionToken,
+      sessionToken: sessionToken,  // Base64 for client/middleware
+      jwtToken: jwtToken,          // JWT for additional security if needed
       message: 'Access granted'
     });
 

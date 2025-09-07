@@ -1,4 +1,4 @@
-// components/HomePage.js
+// components/homepage.js
 import { useState, useEffect, useRef } from 'react';
 import { useRouter } from 'next/router';
 import { signIn } from 'next-auth/react';
@@ -25,6 +25,39 @@ export default function HomePage({ onAuthSuccess }) {
     setMounted(true);
   }, []);
 
+  // Handle status messages from middleware redirects
+  useEffect(() => {
+    if (!mounted) return;
+    
+    // Check for status messages from redirect
+    const params = new URLSearchParams(window.location.search);
+    const status = params.get('status');
+    
+    if (status) {
+      switch(status) {
+        case 'auth-required':
+          setError('Authentication required. Please sign in to access DiagnoVera.');
+          break;
+        case 'unauthorized':
+          setError('Your account is not authorized. Please contact an administrator.');
+          break;
+        case 'expired':
+          setError('Your session has expired. Please sign in again.');
+          localStorage.removeItem('diagnovera_session');
+          // Also clear any existing auth cookies
+          document.cookie = 'authToken=; path=/; expires=Thu, 01 Jan 1970 00:00:00 GMT';
+          break;
+        case 'invalid-token':
+          setError('Invalid authentication token. Please sign in again.');
+          localStorage.removeItem('diagnovera_session');
+          document.cookie = 'authToken=; path=/; expires=Thu, 01 Jan 1970 00:00:00 GMT';
+          break;
+      }
+      // Clean up the URL
+      window.history.replaceState({}, document.title, window.location.pathname);
+    }
+  }, [mounted]);
+
   useEffect(() => {
     if (!mounted) return;
 
@@ -36,19 +69,32 @@ export default function HomePage({ onAuthSuccess }) {
         if (session.authorized && session.email) {
           console.log('Found existing session for:', session.email);
           
-          // CRITICAL: Create JWT cookie that middleware expects
-          const sessionToken = btoa(JSON.stringify({
+          // Check if session is still valid (24 hours)
+          const now = Date.now();
+          const authTime = session.timestamp || session.authorizedAt || now;
+          const age = now - authTime;
+          
+          if (age > 86400000) { // 24 hours
+            console.log('Session expired, clearing...');
+            localStorage.removeItem('diagnovera_session');
+            document.cookie = 'authToken=; path=/; expires=Thu, 01 Jan 1970 00:00:00 GMT';
+            setError('Your session has expired. Please sign in again.');
+            return;
+          }
+          
+          // Session still valid, create/refresh cookie
+          const sessionToken = Buffer.from(JSON.stringify({
             email: session.email,
             name: session.name,
             image: session.image,
             authorized: true,
-            authorizedAt: session.timestamp || Date.now()
-          }));
+            authorizedAt: session.authorizedAt || session.timestamp || Date.now()
+          })).toString('base64');
           
           // Set the cookie that middleware checks for
           document.cookie = `authToken=${sessionToken}; path=/; max-age=86400; samesite=strict`;
           
-          console.log('Set auth cookie, redirecting...');
+          console.log('Session still valid, redirecting...');
           
           // Small delay to ensure cookie is set
           setTimeout(() => {
@@ -63,6 +109,7 @@ export default function HomePage({ onAuthSuccess }) {
       } catch (error) {
         console.error('Error parsing session data:', error);
         localStorage.removeItem('diagnovera_session');
+        document.cookie = 'authToken=; path=/; expires=Thu, 01 Jan 1970 00:00:00 GMT';
       }
     }
 
@@ -99,6 +146,7 @@ export default function HomePage({ onAuthSuccess }) {
       setGoogleLoaded(true);
     } catch (error) {
       console.error('Error initializing Google Sign-In:', error);
+      setError('Failed to initialize Google Sign-In. Please refresh the page.');
     }
   };
 
@@ -106,6 +154,7 @@ export default function HomePage({ onAuthSuccess }) {
     // Clear any existing polling
     if (pollIntervalRef.current) {
       clearInterval(pollIntervalRef.current);
+      pollIntervalRef.current = null;
     }
 
     if (!email || email.trim() === '') {
@@ -126,7 +175,7 @@ export default function HomePage({ onAuthSuccess }) {
       console.log(`Poll attempt ${attempts} for ${email}`);
 
       try {
-        // Poll your Upstash Redis-based status API
+        // Poll your Vercel KV-based status API
         const response = await fetch('/api/auth/status', {
           method: 'POST',
           headers: {
@@ -155,15 +204,18 @@ export default function HomePage({ onAuthSuccess }) {
           setUserMessage('Authorization approved! Redirecting...');
 
           // Store session data
-          localStorage.setItem('diagnovera_session', JSON.stringify({
+          const sessionData = {
             email: data.user.email,
             name: data.user.name,
             image: data.user.image,
             authorized: true,
+            authorizedAt: Date.now(),
             timestamp: Date.now()
-          }));
+          };
+          
+          localStorage.setItem('diagnovera_session', JSON.stringify(sessionData));
 
-          // Set cookie for server-side checks
+          // Set cookie for server-side checks using the base64 sessionToken from API
           document.cookie = `authToken=${data.sessionToken}; path=/; max-age=86400; samesite=strict`;
 
           // Small delay to show the message, then redirect
@@ -261,11 +313,41 @@ export default function HomePage({ onAuthSuccess }) {
 
       console.log('OAuth API response:', data);
 
+      // If already authorized, redirect immediately
+      if (data.authorized) {
+        setUserMessage('You are already authorized! Redirecting...');
+        
+        // Store session
+        const sessionData = {
+          email: data.user.email,
+          name: data.user.name,
+          image: data.user.image,
+          authorized: true,
+          authorizedAt: Date.now(),
+          timestamp: Date.now()
+        };
+        
+        localStorage.setItem('diagnovera_session', JSON.stringify(sessionData));
+        
+        // Create and set auth cookie
+        const sessionToken = Buffer.from(JSON.stringify(sessionData)).toString('base64');
+        document.cookie = `authToken=${sessionToken}; path=/; max-age=86400; samesite=strict`;
+        
+        setTimeout(() => {
+          if (onAuthSuccess) {
+            onAuthSuccess(data.user);
+          } else {
+            window.location.href = '/diagnoveraenterpriseinterface';
+          }
+        }, 1000);
+        return;
+      }
+
       // Start the authorization flow
       setAwaitingAuth(true);
       setUserMessage(`Admin notification sent for ${userName}. Waiting for approval...`);
 
-      // Start polling your Upstash Redis-based authorization status
+      // Start polling your Vercel KV-based authorization status
       pollAuthorization(userEmail);
 
     } catch (err) {
@@ -411,7 +493,7 @@ export default function HomePage({ onAuthSuccess }) {
       <section className="hero">
         <div className="container two">
           <div>
-            <h1>DVera™: <span className="grad">Renal Subspecialty AI</span> – Dialysis Analytics & CKD Management</h1>
+            <h1>DVera™: <span className="grad">Renal Subspecialty AI</span> — Dialysis Analytics & CKD Management</h1>
             <div className="tabs" role="tablist" aria-label="Focus areas">
               <button 
                 className={`tab ${activeTab === 'tab1' ? 'active' : ''}`} 
@@ -507,7 +589,6 @@ export default function HomePage({ onAuthSuccess }) {
         </div>
       </section>
 
-      {/* Rest of the sections remain the same but with React state management */}
       <section id="platform">
         <div className="container">
           <div className="badge" style={{color:'#4f46e5'}}>Platform</div>
@@ -679,7 +760,7 @@ export default function HomePage({ onAuthSuccess }) {
                   Executive Profile
                 </button>
                 <div className="content">
-                  Nephrology physician and founder leading strategy, clinical safety, and model governance for DVera™ – aligning scientific rigor with operational scalability.
+                  Nephrology physician and founder leading strategy, clinical safety, and model governance for DVera™ — aligning scientific rigor with operational scalability.
                 </div>
               </div>
               <div className={`accord ${openAccordion === 'a2' ? 'open' : ''}`}>

@@ -1,3 +1,13 @@
 {
-  "version": 2
+  "functions": {
+    "pages/api/auth/[...nextauth].js": {
+      "maxDuration": 10
+    }
+  },
+  "rewrites": [
+    {
+      "source": "/api/auth/:path*",
+      "destination": "/api/auth/:path*"
+    }
+  ]
 }

@@ -17,11 +17,11 @@ export function middleware(request) {
     }
 
     try {
-      // Try to decode the base64 session token first
+      // Try to decode the token
       let decoded;
       try {
-        // Try base64 decode (for session tokens from homepage)
-        decoded = JSON.parse(atob(authToken.value));
+        // Use Buffer.from instead of atob (Node.js compatible)
+        decoded = JSON.parse(Buffer.from(authToken.value, 'base64').toString());
         console.log('Decoded base64 session token for user:', decoded.email);
       } catch (base64Error) {
         // For JWT tokens, we'll accept them but can't verify in middleware
@@ -41,16 +41,22 @@ export function middleware(request) {
       const authTime = decoded.authorizedAt || decoded.timestamp || now;
       const age = now - authTime;
       
-      if (age > 86400000) { // 24 hours
+      if (age > 86400000) { // 24 hours in milliseconds
         console.log('Authorization expired - redirecting to homepage');
-        return NextResponse.redirect(new URL('/?status=expired', request.url));
+        // Clear the expired cookie
+        const response = NextResponse.redirect(new URL('/?status=expired', request.url));
+        response.cookies.delete('authToken');
+        return response;
       }
 
       console.log('Authorization verified - allowing access');
       return NextResponse.next();
     } catch (error) {
       console.error('Token verification failed:', error.message);
-      return NextResponse.redirect(new URL('/?status=invalid-token', request.url));
+      // Clear the invalid cookie
+      const response = NextResponse.redirect(new URL('/?status=invalid-token', request.url));
+      response.cookies.delete('authToken');
+      return response;
     }
   }
 
@@ -66,11 +72,22 @@ export function middleware(request) {
     }
 
     try {
-      // Try base64 decode first
-      const decoded = JSON.parse(atob(authToken.value));
+      // Use Buffer.from instead of atob
+      const decoded = JSON.parse(Buffer.from(authToken.value, 'base64').toString());
       
       if (!decoded.authorized) {
         return NextResponse.redirect(new URL('/?status=unauthorized', request.url));
+      }
+
+      // Check expiration for these routes too
+      const now = Date.now();
+      const authTime = decoded.authorizedAt || decoded.timestamp || now;
+      const age = now - authTime;
+      
+      if (age > 86400000) { // 24 hours
+        const response = NextResponse.redirect(new URL('/?status=expired', request.url));
+        response.cookies.delete('authToken');
+        return response;
       }
 
       return NextResponse.next();
@@ -85,7 +102,7 @@ export function middleware(request) {
 
 export const config = {
   matcher: [
-    '/diagnoveraenterpriseinterface/:path*',
+    '/diagnoveraenterpriseinterface',
     '/dashboard/:path*', 
     '/admin/:path*',
     '/debug/:path*'
