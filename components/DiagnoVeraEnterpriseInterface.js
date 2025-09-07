@@ -1303,8 +1303,10 @@ const KuramotoAnalysis = ({ data, aiResults }) => {
       setOrderParameter(r);
 
       // Clear and redraw
-      g.selectAll(".oscillator").remove();
-      g.selectAll(".mean-field").remove();
+      if (g.node()) {
+        g.selectAll(".oscillator").remove();
+        g.selectAll(".mean-field").remove();
+      }
 
       // Draw mean field vector
       if (r > 0.1) {

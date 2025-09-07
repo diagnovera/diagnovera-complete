@@ -1,6 +1,6 @@
 // pages/api/auth/[...nextauth].js
-import NextAuth from "next-auth"
-import GoogleProvider from "next-auth/providers/google"
+import NextAuth from 'next-auth';
+import GoogleProvider from 'next-auth/providers/google';
 
 export default NextAuth({
   providers: [
@@ -9,19 +9,19 @@ export default NextAuth({
       clientSecret: process.env.GOOGLE_CLIENT_SECRET,
     })
   ],
-  callbacks: {
-    async signIn({ user, account, profile }) {
-      console.log('Sign in attempt:', user.email);
-      // For now, just allow sign-in and log it
-      return true;
-    },
-    async redirect({ url, baseUrl }) {
-      // Always redirect back to home
-      return baseUrl;
-    }
-  },
   pages: {
     signIn: '/',
+    error: '/',
   },
-  secret: process.env.NEXTAUTH_SECRET,
-})
+  callbacks: {
+    async session({ session, token }) {
+      return session;
+    },
+    async jwt({ token, user }) {
+      if (user) {
+        token.id = user.id;
+      }
+      return token;
+    }
+  }
+});
