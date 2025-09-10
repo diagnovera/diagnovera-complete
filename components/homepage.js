@@ -1,7 +1,7 @@
 // components/homepage.js
 import { useState, useEffect, useRef } from 'react';
 import { useRouter } from 'next/router';
-import { signIn } from 'next-auth/react';
+// REMOVED: import { signIn } from 'next-auth/react';
 import Script from 'next/script';
 
 export default function HomePage({ onAuthSuccess }) {
