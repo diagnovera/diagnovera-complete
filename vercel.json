@@ -1,13 +1,13 @@
 {
   "functions": {
-    "pages/api/auth/[...nextauth].js": {
+    "pages/api/auth/google-callback.js": {
+      "maxDuration": 10
+    },
+    "pages/api/auth/authorize.js": {
+      "maxDuration": 10
+    },
+    "pages/api/auth/google-oauth.js": {
       "maxDuration": 10
     }
-  },
-  "rewrites": [
-    {
-      "source": "/api/auth/:path*",
-      "destination": "/api/auth/:path*"
-    }
-  ]
+  }
 }
